@@ -173,14 +173,14 @@ Goal: implement one complete and correct GRPO optimization step.
 
 #### LLM RL Concepts
 
-- [ ] Understand prompt tokens vs. response tokens
-- [ ] Understand token-level log probabilities
-- [ ] Understand sequence-level rewards
-- [ ] Understand response masking
-- [ ] Understand the old policy
-- [ ] Understand the reference policy
-- [ ] Understand why old policy != reference policy
-- [ ] Understand KL regularization in LLM RL
+- [x] Understand prompt tokens vs. response tokens
+- [x] Understand token-level log probabilities
+- [x] Understand sequence-level rewards
+- [x] Understand response masking
+- [x] Understand the old policy
+- [x] Understand the reference policy
+- [x] Understand why old policy != reference policy
+- [x] Understand KL regularization in LLM RL
 
 #### Implementation
 
