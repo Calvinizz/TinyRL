@@ -184,37 +184,39 @@ Goal: implement one complete and correct GRPO optimization step.
 
 #### Implementation
 
-- [ ] Load `Qwen2.5-0.5B-Instruct`
-- [ ] Load tokenizer
-- [ ] Prepare a small prompt dataset
-- [ ] Implement rollout generation
-- [ ] Generate multiple responses per prompt
-- [ ] Implement group sampling
-- [ ] Implement a rule-based reward
-- [ ] Start with GSM8K exact-answer reward
-- [ ] Implement group mean and standard deviation
-- [ ] Implement group-relative advantage
+- [x] Load `Qwen2.5-0.5B-Instruct`
+- [x] Load tokenizer
+- [x] Prepare a small prompt dataset
+- [x] Implement rollout generation
+- [x] Generate multiple responses per prompt
+- [x] Implement group sampling
+- [x] Implement a rule-based reward
+- [x] Start with GSM8K exact-answer reward
+- [x] Implement group mean and standard deviation
+- [x] Implement group-relative advantage
 
 ```text
 A_i = (r_i - mean(r)) / (std(r) + eps)
 ```
 
-- [ ] Compute response-token log probabilities
-- [ ] Compute old-policy log probabilities
-- [ ] Compute reference-policy log probabilities
-- [ ] Implement the importance ratio
+- [x] Compute response-token log probabilities
+- [x] Compute old-policy log probabilities
+- [x] Compute reference-policy log probabilities
+- [x] Implement the importance ratio
 
 ```text
 ratio = exp(logp_new - logp_old)
 ```
 
-- [ ] Implement PPO-style clipping
-- [ ] Implement GRPO policy loss
-- [ ] Implement KL penalty
-- [ ] Mask prompt tokens from policy loss
-- [ ] Run one optimizer step successfully
-- [ ] Verify gradients are non-zero
-- [ ] Verify learning on a toy task
+- [x] Implement PPO-style clipping
+- [x] Implement GRPO policy loss
+- [x] Implement KL penalty
+- [x] Mask prompt tokens from policy loss
+- [x] Run one optimizer step successfully
+- [x] Verify gradients are non-zero
+- [x] Verify learning on a toy task
+
+Verified runs and debugging notes: `docs/phase1_results.md` (trainer: `scripts/train_grpo.py`).
 
 ---
 
