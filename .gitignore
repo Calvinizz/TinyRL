@@ -1,0 +1,51 @@
+# Model weights (downloaded locally, too large for git)
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# HuggingFace / ModelScope download caches
+.cache/
+
+# Environments & secrets
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# --- Training artifacts (Phase 1+: checkpoints, LoRA adapters, logs) ---
+checkpoints/
+outputs/
+runs/
+logs/
+wandb/
+events.out.tfevents.*
+*.log
+
+# Stray weight / checkpoint files anywhere in the tree
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Datasets downloaded or generated locally (GSM8K etc.)
+data/
+
+# Test & lint caches (tests/)
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Profiler traces (Phase 4: torch.profiler chrome traces)
+*.trace.json
