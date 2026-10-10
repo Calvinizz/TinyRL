@@ -224,13 +224,13 @@ Verified runs and debugging notes: `docs/phase1_results.md` (trainer: `scripts/t
 
 Goal: move from a single training script to a small RL training system.
 
-- [ ] Implement `RolloutWorker`
-- [ ] Implement `RewardManager`
-- [ ] Implement `Experience`
-- [ ] Implement `ExperienceBuffer`
-- [ ] Implement `GRPOTrainer`
-- [ ] Implement `ModelManager`
-- [ ] Separate rollout logic from training logic
+- [x] Implement `RolloutWorker`
+- [x] Implement `RewardManager`
+- [x] Implement `Experience`
+- [x] Implement `ExperienceBuffer`
+- [x] Implement `GRPOTrainer`
+- [x] Implement `ModelManager`
+- [x] Separate rollout logic from training logic
 
 Planned experience structure:
 
@@ -247,10 +247,13 @@ ref_logprobs
 
 Engineering tasks:
 
-- [ ] Add shape assertions
-- [ ] Add dtype assertions
-- [ ] Add device assertions
-- [ ] Add unit tests for core components
+- [x] Add shape assertions
+- [x] Add dtype assertions
+- [x] Add device assertions
+- [x] Add unit tests for core components
+
+Verified: 37 unit tests green + 10-step GPU toy run through the full
+modular pipeline (`scripts/train_tinyrl.py`, `tinyr/` package).
 
 ---
 

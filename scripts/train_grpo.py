@@ -202,7 +202,7 @@ def compute_logprobs(
         dim=-1,
         index=label.unsqueeze(-1),
     ).squeeze(-1)
-    # gather结束变成  N T 1 了
+    # gather结束变成  N T 了
     token_logps = token_logps * response_mask[:,1:]
     return token_logps
 
