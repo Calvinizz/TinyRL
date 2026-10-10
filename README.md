@@ -296,118 +296,46 @@ Goal: make GRPO practical on an 11GB GPU.
 
 ### Phase 4 — Throughput Profiling
 
-Goal: identify where RL post-training spends time.
+Goal: know where the step time goes.
 
-#### Learn
-
-- [ ] Rollout latency
-- [ ] Forward latency
-- [ ] Backward latency
-- [ ] Optimizer-step latency
-- [ ] Tokens per second
-- [ ] GPU utilization
-- [ ] Padding waste
-
-#### Implement
-
-- [ ] Measure rollout time
-- [ ] Measure reward time
-- [ ] Measure log-probability recomputation time
-- [ ] Measure backward time
-- [ ] Measure optimizer-step time
-- [ ] Measure rollout tokens/s
-- [ ] Measure training tokens/s
-- [ ] Measure total step latency
-- [ ] Log peak GPU memory
-
-Target metrics:
-
-```text
-rollout_time
-reward_time
-logprob_time
-backward_time
-optimizer_time
-rollout_tokens_per_second
-train_tokens_per_second
-peak_gpu_memory
-```
-
-- [ ] Document results in `benchmarks/throughput.md`
+- [ ] Step-latency breakdown: rollout / logprob forward+backward / optimizer step
+- [ ] Rollout tokens/s and training tokens/s
+- [ ] Peak GPU memory logged per step
+- [ ] Record results in `benchmarks/throughput.md`
 
 ---
 
 ### Phase 5 — Dynamic Batching & Padding Reduction
 
-Goal: reduce wasted computation caused by variable sequence lengths.
+Goal: stop paying compute for padding tokens.
 
-#### Learn
-
-- [ ] Padding overhead
-- [ ] Sequence-length imbalance
-- [ ] Token-based batching
-- [ ] Dynamic batching
-
-#### Implement
-
-- [ ] Log response-length distribution
+- [ ] Measure padding ratio and the response-length distribution
 - [ ] Bucket samples by response length
-- [ ] Implement dynamic micro-batching
-- [ ] Measure padding ratio
-- [ ] Compare fixed-size and dynamic batching
-- [ ] Measure throughput improvement
+- [ ] Dynamic micro-batching driven by the buckets
+- [ ] Compare fixed vs dynamic batching throughput
 
 ---
 
 ### Phase 6 — Rollout / Training Decoupling
 
-Goal: understand a core RL-system design pattern.
+Goal: the core RL-system design pattern — producer/consumer with
+staleness control.
 
-#### Learn
-
-- [ ] Synchronous RL training
-- [ ] Rollout-training decoupling
-- [ ] Producer-consumer architecture
-- [ ] Policy staleness
-- [ ] On-policy vs. off-policy behavior in system design
-
-#### Implement
-
-- [ ] Separate rollout and training modules
-- [ ] Introduce an experience queue
-- [ ] Make rollout produce experiences
-- [ ] Make trainer consume experiences
-- [ ] Track policy version per experience
-- [ ] Log policy-version lag
-- [ ] Add a maximum staleness threshold
-- [ ] Build a synchronous baseline
-- [ ] Build a simple asynchronous prototype
-- [ ] Compare throughput and utilization
+- [ ] Experience queue between rollout and trainer
+- [ ] Rollout worker produces experiences; trainer consumes them
+- [ ] Policy version stamped on every experience
+- [ ] Staleness: log version lag, cap it with a max-staleness threshold
+- [ ] Sync baseline vs simple async prototype: throughput comparison
 
 ---
 
 ### Phase 7 — Inference Backend Abstraction
 
-Goal: make rollout generation independent from the trainer implementation.
+Goal: the trainer shouldn't know how generation happens.
 
-#### Learn
-
-- [ ] Hugging Face `generate()`
-- [ ] Prefill vs. decode
-- [ ] KV cache
-- [ ] Continuous batching
-- [ ] PagedAttention
-- [ ] Why RL systems use dedicated rollout engines
-
-#### Implement
-
-- [ ] Define a common rollout backend interface
-- [ ] Implement a Hugging Face backend
-- [ ] Keep the trainer independent from the rollout backend
-- [ ] Investigate vLLM integration
-- [ ] Document GTX 1080 Ti compatibility limitations
-
-Example interface:
+- [ ] `RolloutBackend` interface (`generate(prompts, **kwargs)`)
+- [ ] Hugging Face `generate()` backend behind it; trainer stays backend-agnostic
+- [ ] Study: prefill vs decode, KV cache, continuous batching, PagedAttention — why RL systems use dedicated rollout engines
 
 ```python
 class RolloutBackend:
@@ -415,35 +343,23 @@ class RolloutBackend:
         raise NotImplementedError
 ```
 
+> Deferred: real vLLM integration — vLLM requires compute capability
+> >= 7.0 (Volta), so the GTX 1080 Ti (Pascal, sm_61) cannot run it;
+> document the limitation instead.
+
 ---
 
 ### Phase 8 — Distributed Training Fundamentals
 
-Goal: understand the concepts used by production-grade RL training frameworks.
+Goal: the vocabulary needed to read production RL frameworks.
 
-#### Learn
+- [ ] Data parallelism / DDP: gradient sync via AllReduce
+- [ ] FSDP — why sharding parameters reduces memory pressure
+- [ ] ZeRO stages 1 / 2 / 3
+- [ ] NCCL basics; when communication becomes the bottleneck
+- [ ] Hands-on: a minimal DDP example
 
-- [ ] Data Parallelism
-- [ ] DDP
-- [ ] AllReduce
-- [ ] ReduceScatter
-- [ ] AllGather
-- [ ] FSDP
-- [ ] ZeRO Stage 1
-- [ ] ZeRO Stage 2
-- [ ] ZeRO Stage 3
-- [ ] Tensor Parallelism
-- [ ] Pipeline Parallelism
-- [ ] NCCL basics
-- [ ] PCIe vs. NVLink
-
-#### Practice
-
-- [ ] Write a minimal DDP example
-- [ ] Understand gradient synchronization
-- [ ] Read a minimal FSDP example
-- [ ] Explain why FSDP reduces memory pressure
-- [ ] Explain when communication becomes the bottleneck
+> Deferred: tensor parallelism and pipeline parallelism (revisit later).
 
 ---
 
