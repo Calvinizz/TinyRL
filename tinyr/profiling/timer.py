@@ -27,7 +27,8 @@ class _Section:
         `self` (the `as` variable — unused by callers, but the protocol
         expects a value).
         """
-        raise NotImplementedError
+        self._timer._begin(self._name)
+        return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         """TODO P4.1 (b): tell the timer this section ended NOW.
@@ -38,7 +39,8 @@ class _Section:
         exceptional path too — that is why the duration still gets
         recorded when a section dies mid-flight.
         """
-        raise NotImplementedError
+        self._timer._end()
+        return False
 
 
 class Timer:
@@ -70,6 +72,10 @@ class Timer:
 
     # -- internal: called by _Section --------------------------------
 
+    def section(self, name: str) -> _Section:
+        """Hand back the context manager that times `name`."""
+        return _Section(self, name)
+
     def _begin(self, name: str) -> None:
         """TODO P4.1 (c): open a section.
 
@@ -77,7 +83,8 @@ class Timer:
         (name, clock()) in self._start. Do NOT append anything to the
         log yet — the duration only exists once the section closes.
         """
-        raise NotImplementedError
+        assert self._start is None
+        self._start = (name,self._clock())
 
     def _end(self) -> None:
         """TODO P4.1 (d): close the open section.
@@ -86,7 +93,13 @@ class Timer:
         section's duration list. Creating the list on first sight of the
         name is fine (dict.setdefault).
         """
-        raise NotImplementedError
+        assert self._start is not None
+        end = self._clock()
+        name, start = self._start
+        self._start = None
+        duration = end - start
+        self._log.setdefault(name,[]).append(duration)
+        
 
     # -- queries ------------------------------------------------------
 
@@ -97,7 +110,7 @@ class Timer:
         should be loud, not silently 0.0.
         """
         # TODO P4.1 (e)
-        raise NotImplementedError
+        return self._log[name][-1]
 
     def mean(self, name: str) -> float:
         """Arithmetic mean of all durations of `name`.
@@ -105,9 +118,13 @@ class Timer:
         Same KeyError contract as last().
         """
         # TODO P4.1 (f)
-        raise NotImplementedError
+        return sum(self._log[name]) / len(self._log[name])
 
     def summary(self) -> dict[str, float]:
         """{section_name: mean_seconds} for every section seen."""
         # TODO P4.1 (g)
-        raise NotImplementedError
+        summary =  dict()
+        for name in self._log: 
+            summary[name] = self.mean(name)
+        return summary
+        

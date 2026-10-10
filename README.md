@@ -305,10 +305,18 @@ gradient checkpointing is a no-op under LoRA (`benchmarks/memory.md`).
 
 Goal: know where the step time goes.
 
-- [ ] Step-latency breakdown: rollout / reward / logprob passes / train *(TODO P4.1: `Timer` in `tinyr/profiling/timer.py`; sections wired in `train_tinyrl.py`. Optimizer step is folded into "train" — at LoRA scale it is a few kernels over 2M params, negligible next to the `[N,T,V]` logits forward)*
-- [ ] Rollout tokens/s and training tokens/s *(TODO P4.2)*
-- [ ] Peak GPU memory logged per step *(TODO P4.2: per-step high-water reset)*
-- [ ] Record results in `benchmarks/throughput.md` *(run `scripts/benchmark_throughput.py` after P4.1/P4.2, fill Findings)*
+- [x] Step-latency breakdown: rollout / reward / logprob passes / train *(P4.1: injectable-clock `Timer`; optimizer folded into "train" — a few kernels over 2M LoRA params, unmeasurable next to the `[N,T,V]` logits forward)*
+- [x] Rollout tokens/s and training tokens/s *(P4.2)*
+- [x] Peak GPU memory logged per step *(P4.2: per-step `reset_peak_memory_stats`)*
+- [x] Record results in `benchmarks/throughput.md`
+
+Verified: 52 unit tests green; per-step log now carries peak/GiB, gen
+and train tok/s, and a section breakdown. Headline result
+(`benchmarks/throughput.md`): doubling the batch nearly doubles
+generation throughput (102 → 198 tok/s) while training throughput is
+flat — decode amortizes weight reads, per-sequence decode speed is
+stuck at ~12 tok/s on HF `generate()`, which is the case for dedicated
+rollout engines (Phase 7).
 
 ---
 

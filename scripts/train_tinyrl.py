@@ -78,6 +78,7 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> dict:
         # peak reading is THIS step's maximum: torch.cuda.reset_peak_memory_stats()
         # (without it the reading is the max over all steps so far — the
         # exact bug the Phase-3 benchmark shipped with).
+        torch.cuda.reset_peak_memory_stats()
 
         questions = random.sample(prompts, cfg.n_prompts_per_step)
         ground_truths = [
@@ -126,9 +127,10 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> dict:
         #     in ONE parallel forward (teacher forcing)
         #   peak_gib      = torch.cuda.max_memory_allocated() / 1024**3
         #     meaningful per-step only because of the reset in (a)
-        rollout_tok_s = ...
-        train_tok_s = ...
-        peak_gib = ...
+        rollout_tok_s = exp.n_response_tokens / timer.last("rollout")
+        # 因为我们训练也用这些token
+        train_tok_s = exp.n_response_tokens / timer.last("train")
+        peak_gib = torch.cuda.max_memory_allocated() / 1024**3
 
         sample = roll.responses[0][:120]
         prof = {
