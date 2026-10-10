@@ -123,9 +123,22 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> None:
             # 4. if it was already 1, re-raise: retrying the same failing
             #    config forever helps no one
             # 5. retry this step WITHOUT counting it as trained (step -= 1)
-            raise NotImplementedError(
-                "TODO P3.5: implement the OOM fallback (see comment)"
-            ) from e
+            buffer.get()
+            torch.cuda.empty_cache()
+            peak_mem = torch.cuda.max_memory_allocated()
+            print(
+                f"[OOM] step={step}, "
+                f"n_prompts_per_step={cfg.n_prompts_per_step}, "
+                f"group_size={cfg.group_size}, "
+                f"max_new_tokens={cfg.max_new_tokens}, "
+                f"peak_memory={peak_mem / 1024**3:.2f} GB"
+            )
+            if cfg.n_prompts_per_step == 1:
+                raise 
+            cfg.n_prompts_per_step = max(1, cfg.n_prompts_per_step-1)
+            step -= 1
+            continue
+
 
         # ---- logging ----
         print(
@@ -145,11 +158,20 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     for field, default in TrainingConfig.__dict__.items():
         if not field.startswith("_"):
-            parser.add_argument(
-                f"--{field.replace('_', '-')}",
-                type=type(default),
-                default=default,
-            )
+            if isinstance(default, bool):
+                # store_true: flag present -> True; absent -> default.
+                # (type=bool would parse the STRING "False" as True!)
+                parser.add_argument(
+                    f"--{field.replace('_', '-')}",
+                    action="store_true",
+                    default=default,
+                )
+            else:
+                parser.add_argument(
+                    f"--{field.replace('_', '-')}",
+                    type=type(default),
+                    default=default,
+                )
     parser.add_argument(
         "--toy", action="store_true", help="use the toy arithmetic task"
     )

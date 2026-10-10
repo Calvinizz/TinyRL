@@ -129,13 +129,20 @@ class GRPOTrainer:
         exp.advantages = self.compute_group_advantages(
             exp.rewards, self.cfg.group_size, eps=self.cfg.adv_eps
         )
-        with torch.no_grad():
-            exp.old_logprobs = self.compute_logprobs(
-                self.policy, exp.input_ids, exp.attention_mask, exp.response_mask
-            )
-            exp.ref_logprobs = self.compute_logprobs(
-                self.ref, exp.input_ids, exp.attention_mask, exp.response_mask
-            )
+        # 开启cpu offload , 临时从cpu搬回gpu
+        if self.cfg.ref_model_offload:
+            self.ref.to(self.cfg.device)
+        try:
+            with torch.no_grad():
+                exp.old_logprobs = self.compute_logprobs(
+                    self.policy, exp.input_ids, exp.attention_mask, exp.response_mask
+                )
+                exp.ref_logprobs = self.compute_logprobs(
+                    self.ref, exp.input_ids, exp.attention_mask, exp.response_mask
+                )
+        finally:
+            if self.cfg.ref_model_offload:
+                self.ref.to("cpu")
         return exp
 
     def train_step(self, exp: Experience) -> dict[str, float]:
@@ -169,6 +176,7 @@ class GRPOTrainer:
                 exp.n_sequences, self.cfg.micro_batch_size
             ))
             self.optimizer.zero_grad(set_to_none=True)
+            loss_all = 0
             for rows in micro_batches:
                 sub = exp.rows(rows)
                 new_logprobs = self.compute_logprobs(
@@ -180,10 +188,9 @@ class GRPOTrainer:
                     sub.advantages, sub.response_mask, self.cfg,
                 )
                 # TODO P3.3: backward with the accumulation-correct scale
-                raise NotImplementedError(
-                    "TODO P3.3: implement the backward/step structure of "
-                    "gradient accumulation (see docstring)"
-                )
+                loss = loss / len(micro_batches)
+                loss.backward()
+
             if self._steps == 0 and inner_epoch == 0:
                 self.verify_gradients()
             grad_norm = torch.nn.utils.clip_grad_norm_(

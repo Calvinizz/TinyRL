@@ -277,20 +277,27 @@ Goal: make GRPO practical on an 11GB GPU.
 
 - [x] FP16 training *(Phase 1: fp16 base + fp32 LoRA adapters)*
 - [x] LoRA / PEFT support *(Phase 1: r16/α32 on qkvo)*
-- [ ] Gradient accumulation *(TODO P3.3)*
-- [ ] Gradient checkpointing *(TODO P3.2)*
-- [ ] Configurable micro-batch size *(config flag done; training path TODO P3.3)*
-- [ ] Reference-model CPU offload *(TODO P3.4)*
-- [ ] Peak GPU-memory profiling *(TODO P3.1)*
-- [ ] OOM diagnostics *(TODO P3.5)*
-- [ ] Group-size fallback for low-memory hardware *(TODO P3.5)*
+- [x] Gradient accumulation *(P3.3: `(loss / n_micro).backward()` per micro-batch; micro-accumulated grads == full-batch grads, `tests/test_accumulation.py`)*
+- [x] Gradient checkpointing *(P3.2: +`enable_input_require_grads()`; bit-identical metrics verified — saves ~0 memory under qkvo-LoRA, see benchmark)*
+- [x] Configurable micro-batch size *(P3.3: `iter_micro_batches` + `cfg.micro_batch_size`)*
+- [x] Reference-model CPU offload *(P3.4: ref on CPU, moved to GPU per `prepare()` under try/finally)*
+- [x] Peak GPU-memory profiling *(P3.1: `MemoryProfiler`)*
+- [x] OOM diagnostics *(P3.5)*
+- [x] Group-size fallback for low-memory hardware *(P3.5: shrink `n_prompts_per_step`, drain buffer, retry)*
 
 #### Benchmark
 
-- [ ] Record baseline peak memory *(run `scripts/benchmark_memory.py` after P3.1–P3.4)*
-- [ ] Record optimized peak memory *(same run, optimized variants)*
+- [x] Record baseline peak memory *(7.63 GiB @ 6×2 / 384 tok)*
+- [x] Record optimized peak memory *(3.99 GiB with micro-batch 2 — `scripts/benchmark_memory.py`)*
 - [x] Compare full fine-tuning vs. LoRA if feasible *(Phase 1 finding: full-FT fp16 + AdamW does not fit 11GB; LoRA with fp32 adapters is the enabler — see `docs/phase1_results.md`)*
-- [ ] Document results in `benchmarks/memory.md`
+- [x] Document results in `benchmarks/memory.md`
+
+Verified: 45 unit tests green; five config variants produce bit-identical
+KL/ratio metrics; OOM fallback recovers under stress (10.49 GB peak caught,
+batch shrunk 12→11, training completed). Headline result: peak memory
+7.63 → 3.99 GiB (−48%), and the benchmark shows *why* — the `[N, T, V]`
+logits tensor dominates this model class, so micro-batching wins and
+gradient checkpointing is a no-op under LoRA (`benchmarks/memory.md`).
 
 ---
 

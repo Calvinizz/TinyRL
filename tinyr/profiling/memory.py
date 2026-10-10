@@ -30,7 +30,11 @@ class MemoryProfiler:
         All three are plain ints — cast with float(). They return 0 on a
         CPU-only box, which is what lets the unit tests run anywhere.
         """
-        raise NotImplementedError("TODO P3.1: implement MemoryProfiler.snapshot")
+        stat = dict()
+        stat['allocated'] = float(torch.cuda.memory_allocated())
+        stat['reserved'] = float(torch.cuda.memory_reserved())
+        stat['peak'] = float(torch.cuda.max_memory_allocated())
+        return stat
 
     def mark(self, label: str) -> dict[str, float]:
         """Take a snapshot and store it under `label`."""
