@@ -3,7 +3,7 @@
 import torch
 
 from tinyr.config import TrainingConfig
-from tinyr.experience.experience import Experience
+from tinyr.experience.experience import Experience, iter_micro_batches
 
 
 class GRPOTrainer:
@@ -117,7 +117,15 @@ class GRPOTrainer:
     # ------------------------------------------------------------------
 
     def prepare(self, exp: Experience) -> Experience:
-        """Fill advantages and old/ref logprobs (constants for the update)."""
+        """Fill advantages and old/ref logprobs (constants for the update).
+
+        TODO P3.4b: when the reference model is CPU-offloaded
+        (cfg.ref_model_offload), self.ref lives on the CPU. Move it to
+        cfg.device for the no-grad ref pass below, then move it back —
+        use try/finally so an exception mid-pass cannot strand ~1GB of
+        fp16 weights on the GPU. Wrapping only the ref pass keeps the
+        policy pass untouched.
+        """
         exp.advantages = self.compute_group_advantages(
             exp.rewards, self.cfg.group_size, eps=self.cfg.adv_eps
         )
@@ -131,19 +139,51 @@ class GRPOTrainer:
         return exp
 
     def train_step(self, exp: Experience) -> dict[str, float]:
-        """Run n_inner_epochs policy updates on one experience."""
+        """Run n_inner_epochs policy updates on one experience.
+
+        TODO P3.3: micro-batching + gradient accumulation.
+
+        Structure (the framework part is already wired):
+
+            for inner_epoch in range(n_inner_epochs):
+                zero_grad
+                for rows in iter_micro_batches(N, cfg.micro_batch_size):
+                    sub  = exp.rows(rows)
+                    forward -> loss on the micro-batch
+                    (loss / n_micro_batches).backward()     # ← the TODO
+                clip + optimizer.step()                     # ONCE per epoch
+
+        The contract your code must satisfy (tests/test_accumulation.py):
+        with equal response-token counts per micro-batch, accumulated
+        micro-batch gradients must EQUAL full-batch gradients. That is
+        why each micro-batch's loss is divided by the NUMBER OF
+        MICRO-BATCHES — grads then sum to the full-batch mean, not to
+        n_micro copies of it. Keep optimizer.step() OUT of the micro
+        loop; zero_grad ONCE per inner epoch (not per micro-batch).
+
+        Metrics: keep returning the last micro-batch's dict + grad_norm.
+        """
         metrics: dict[str, float] = {}
         for inner_epoch in range(self.cfg.n_inner_epochs):
-            new_logprobs = self.compute_logprobs(
-                self.policy, exp.input_ids, exp.attention_mask, exp.response_mask
-            )
-            loss, metrics = self.compute_grpo_loss(
-                new_logprobs, exp.old_logprobs, exp.ref_logprobs,
-                exp.advantages, exp.response_mask, self.cfg,
-            )
-
+            micro_batches = list(iter_micro_batches(
+                exp.n_sequences, self.cfg.micro_batch_size
+            ))
             self.optimizer.zero_grad(set_to_none=True)
-            loss.backward()
+            for rows in micro_batches:
+                sub = exp.rows(rows)
+                new_logprobs = self.compute_logprobs(
+                    self.policy, sub.input_ids, sub.attention_mask,
+                    sub.response_mask,
+                )
+                loss, metrics = self.compute_grpo_loss(
+                    new_logprobs, sub.old_logprobs, sub.ref_logprobs,
+                    sub.advantages, sub.response_mask, self.cfg,
+                )
+                # TODO P3.3: backward with the accumulation-correct scale
+                raise NotImplementedError(
+                    "TODO P3.3: implement the backward/step structure of "
+                    "gradient accumulation (see docstring)"
+                )
             if self._steps == 0 and inner_epoch == 0:
                 self.verify_gradients()
             grad_norm = torch.nn.utils.clip_grad_norm_(

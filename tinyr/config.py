@@ -40,3 +40,7 @@ class TrainingConfig:
     max_steps: int = 50
     seed: int = 0
     device: str = "cuda"
+    # phase 3: memory optimization
+    micro_batch_size: int = 0   # rows per forward; 0 = whole batch at once
+    gradient_checkpointing: bool = False
+    ref_model_offload: bool = False

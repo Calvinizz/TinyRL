@@ -65,8 +65,8 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> None:
         f"batch={cfg.n_prompts_per_step}x{cfg.group_size} | lr={cfg.lr}"
     )
 
-    for step in range(1, cfg.max_steps + 1):
-        t0 = time.perf_counter()
+    def run_one_step() -> tuple[float, float, dict, int, str]:
+        """One full training step; returns (reward, acc, metrics, resp_tok, sample)."""
         questions = random.sample(prompts, cfg.n_prompts_per_step)
         ground_truths = [
             r["answer"] for r in questions for _ in range(cfg.group_size)
@@ -95,20 +95,50 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> None:
         for buffered in buffer.get():
             trainer.prepare(buffered)
             metrics = trainer.train_step(buffered)
+        sample = roll.responses[0][:120]
+        return (
+            exp.rewards.mean().item(),
+            (exp.rewards > 0).float().mean().item(),
+            metrics,
+            exp.n_response_tokens,
+            sample,
+        )
+
+    step = 0
+    while step < cfg.max_steps:
+        step += 1
+        t0 = time.perf_counter()
+        try:
+            reward, acc, metrics, resp_tok, sample = run_one_step()
+        except torch.OutOfMemoryError as e:
+            # TODO P3.5: OOM diagnostics + batch-size fallback.
+            #
+            # 1. free the cached blocks: torch.cuda.empty_cache()
+            # 2. print a diagnostic line: current step, n_prompts_per_step,
+            #    group_size, max_new_tokens, and torch.cuda.max_memory_allocated()
+            #    — show the user WHAT the memory pressure was
+            # 3. shrink the rollout width: cfg.n_prompts_per_step = max(1,
+            #    cfg.n_prompts_per_step - 1)  (samples per forward is
+            #    n_prompts_per_step * group_size — the OOM driver)
+            # 4. if it was already 1, re-raise: retrying the same failing
+            #    config forever helps no one
+            # 5. retry this step WITHOUT counting it as trained (step -= 1)
+            raise NotImplementedError(
+                "TODO P3.5: implement the OOM fallback (see comment)"
+            ) from e
 
         # ---- logging ----
-        acc = (exp.rewards > 0).float().mean().item()
         print(
-            f"step {step:3d} | reward {exp.rewards.mean().item():.3f} "
+            f"step {step:3d} | reward {reward:.3f} "
             f"(acc {acc:.2f}) | kl {metrics.get('kl', float('nan')):.4f} "
             f"| clip {metrics.get('clip_frac', float('nan')):.3f} "
             f"| ratio [{metrics.get('ratio_min', float('nan')):.2f}, "
             f"{metrics.get('ratio_max', float('nan')):.2f}] "
             f"| grad {metrics.get('grad_norm', float('nan')):.2f} "
-            f"| resp_tok {exp.n_response_tokens} "
+            f"| resp_tok {resp_tok} "
             f"| {time.perf_counter() - t0:.1f}s"
         )
-        print(f"  sample response: {roll.responses[0][:120]!r}")
+        print(f"  sample response: {sample!r}")
 
 
 def main() -> None:

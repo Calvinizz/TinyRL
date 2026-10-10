@@ -44,7 +44,7 @@ class Experience:
     def build_response_mask(
         attention_mask: torch.Tensor, prompt_width: int
     ) -> torch.Tensor:
-        """TODO 2: mask out everything except response tokens.
+        """Mask out everything except response tokens.
 
         Rows look like [left-pad][prompt][response]; `attention_mask` is
         already 0 on left padding and on tokens generated after the first
@@ -52,14 +52,29 @@ class Experience:
 
         Returns:
             torch.Tensor[bool] of shape [N, T]: True on response positions
-        Port your Phase 1 build_response_mask.
         """
-        N,T = attention_mask.shape
-        position = torch.arange(T,device=attention_mask.device)
+        N, T = attention_mask.shape
+        position = torch.arange(T, device=attention_mask.device)
         resp_position = position >= prompt_width
         return resp_position & attention_mask.bool()
 
+    def rows(self, idx) -> "Experience":
+        """A new Experience restricted to rows `idx` (list/slice/tensor).
 
+        Tensors keep their widths — only the batch dim is indexed, so
+        prompt padding stays intact. advantages / old_logprobs /
+        ref_logprobs are sliced along when present.
+        """
+        return Experience(
+            prompt_ids=self.prompt_ids[idx],
+            response_ids=self.response_ids[idx],
+            attention_mask=self.attention_mask[idx],
+            response_mask=self.response_mask[idx],
+            rewards=self.rewards[idx],
+            advantages=self.advantages[idx] if self.advantages is not None else None,
+            old_logprobs=self.old_logprobs[idx] if self.old_logprobs is not None else None,
+            ref_logprobs=self.ref_logprobs[idx] if self.ref_logprobs is not None else None,
+        )
 
     def __post_init__(self) -> None:
         """Validate shapes / dtypes / devices at construction time.
@@ -104,3 +119,17 @@ class Experience:
             assert_shape(self.old_logprobs, (N, T - 1), "old_logprobs")
         if self.ref_logprobs is not None:
             assert_shape(self.ref_logprobs, (N, T - 1), "ref_logprobs")
+
+
+def iter_micro_batches(n_rows: int, micro_batch_size: int):
+    """Yield row-index lists chunking range(n_rows).
+
+    micro_batch_size <= 0 (or None) means "one big batch" — the Phase 2
+    behavior. The last chunk may be smaller than micro_batch_size.
+    """
+    if micro_batch_size is None or micro_batch_size <= 0:
+        micro_batch_size = n_rows
+    return (
+        list(range(start, min(start + micro_batch_size, n_rows)))
+        for start in range(0, n_rows, micro_batch_size)
+    )
