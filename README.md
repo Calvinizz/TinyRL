@@ -263,33 +263,33 @@ Goal: make GRPO practical on an 11GB GPU.
 
 #### Learn
 
-- [ ] Parameter memory
-- [ ] Gradient memory
-- [ ] Optimizer-state memory
-- [ ] Activation memory
-- [ ] KV-cache memory
-- [ ] FP32 vs. FP16 memory usage
-- [ ] Gradient accumulation
-- [ ] Activation checkpointing
-- [ ] CPU offload
+- [x] Parameter memory
+- [x] Gradient memory
+- [x] Optimizer-state memory
+- [x] Activation memory
+- [x] KV-cache memory
+- [x] FP32 vs. FP16 memory usage
+- [x] Gradient accumulation
+- [x] Activation checkpointing
+- [x] CPU offload
 
 #### Implement
 
-- [ ] FP16 training
-- [ ] LoRA / PEFT support
-- [ ] Gradient accumulation
-- [ ] Gradient checkpointing
-- [ ] Configurable micro-batch size
-- [ ] Reference-model CPU offload
-- [ ] Peak GPU-memory profiling
-- [ ] OOM diagnostics
-- [ ] Group-size fallback for low-memory hardware
+- [x] FP16 training *(Phase 1: fp16 base + fp32 LoRA adapters)*
+- [x] LoRA / PEFT support *(Phase 1: r16/α32 on qkvo)*
+- [ ] Gradient accumulation *(TODO P3.3)*
+- [ ] Gradient checkpointing *(TODO P3.2)*
+- [ ] Configurable micro-batch size *(config flag done; training path TODO P3.3)*
+- [ ] Reference-model CPU offload *(TODO P3.4)*
+- [ ] Peak GPU-memory profiling *(TODO P3.1)*
+- [ ] OOM diagnostics *(TODO P3.5)*
+- [ ] Group-size fallback for low-memory hardware *(TODO P3.5)*
 
 #### Benchmark
 
-- [ ] Record baseline peak memory
-- [ ] Record optimized peak memory
-- [ ] Compare full fine-tuning vs. LoRA if feasible
+- [ ] Record baseline peak memory *(run `scripts/benchmark_memory.py` after P3.1–P3.4)*
+- [ ] Record optimized peak memory *(same run, optimized variants)*
+- [x] Compare full fine-tuning vs. LoRA if feasible *(Phase 1 finding: full-FT fp16 + AdamW does not fit 11GB; LoRA with fp32 adapters is the enabler — see `docs/phase1_results.md`)*
 - [ ] Document results in `benchmarks/memory.md`
 
 ---
