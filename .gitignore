@@ -1,5 +1,5 @@
 # Model weights (downloaded locally, too large for git)
-models/
+/models/
 
 # Python
 __pycache__/
