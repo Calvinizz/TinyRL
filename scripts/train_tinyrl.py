@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tinyr.config import DATA_PATH, TrainingConfig
 from tinyr.experience import Experience, ExperienceBuffer
 from tinyr.models import ModelManager
+from tinyr.profiling import Timer
 from tinyr.reward import RewardManager
 from tinyr.rollout import RolloutWorker
 from tinyr.trainer import GRPOTrainer
@@ -50,7 +51,8 @@ def make_toy_prompts(n: int = 16) -> list[dict]:
     return prompts
 
 
-def train(cfg: TrainingConfig, prompts: list[dict]) -> None:
+def train(cfg: TrainingConfig, prompts: list[dict]) -> dict:
+    """Run the loop; returns {"timer", "resp_tokens", "steps"} for benchmarks."""
     random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
@@ -59,24 +61,38 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> None:
     reward_mgr = RewardManager()
     trainer = GRPOTrainer(model_mgr.policy, model_mgr.ref, cfg)
     buffer = ExperienceBuffer(max_size=cfg.buffer_max_size)
+    timer = Timer()
 
     print(
         f"training on {len(prompts)} prompts | "
         f"batch={cfg.n_prompts_per_step}x{cfg.group_size} | lr={cfg.lr}"
     )
 
-    def run_one_step() -> tuple[float, float, dict, int, str]:
-        """One full training step; returns (reward, acc, metrics, resp_tok, sample)."""
+    def run_one_step() -> tuple[float, float, dict, int, str, dict]:
+        """One full training step.
+
+        Returns (reward, acc, metrics, resp_tok, sample, prof) — `prof`
+        carries the per-step Phase-4 numbers for the log line.
+        """
+        # TODO P4.2 (a): restart the CUDA high-water mark so this step's
+        # peak reading is THIS step's maximum: torch.cuda.reset_peak_memory_stats()
+        # (without it the reading is the max over all steps so far — the
+        # exact bug the Phase-3 benchmark shipped with).
+
         questions = random.sample(prompts, cfg.n_prompts_per_step)
         ground_truths = [
             r["answer"] for r in questions for _ in range(cfg.group_size)
         ]
 
         # ---- rollout (policy sampling, no gradients) ----
-        roll = rollout_worker.generate([r["question"] for r in questions])
+        with timer.section("rollout"):
+            roll = rollout_worker.generate(
+                [r["question"] for r in questions]
+            )
 
         # ---- reward ----
-        rewards = reward_mgr.compute(roll.responses, ground_truths)
+        with timer.section("reward"):
+            rewards = reward_mgr.compute(roll.responses, ground_truths)
 
         # ---- experience + buffer ----
         exp = Experience(
@@ -91,25 +107,52 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> None:
         buffer.add(exp)
 
         # ---- training (consume everything buffered) ----
+        buffered_all = buffer.get()
+        with timer.section("prepare"):  # old + ref logprobs (no grads)
+            for buffered in buffered_all:
+                trainer.prepare(buffered)
         metrics: dict[str, float] = {}
-        for buffered in buffer.get():
-            trainer.prepare(buffered)
-            metrics = trainer.train_step(buffered)
+        with timer.section("train"):  # forward + backward + optimizer
+            for buffered in buffered_all:
+                metrics = trainer.train_step(buffered)
+
+        # TODO P4.2 (b): the three throughput numbers for the log line.
+        #   rollout_tok_s = exp.n_response_tokens / timer.last("rollout")
+        #     numerator = REAL response tokens (padding excluded — we do
+        #     not bill for padding; Phase 5 measures how much we waste)
+        #   train_tok_s   = same numerator / timer.last("train")
+        #     the contrast is the point: rollout emits tokens ONE AT A
+        #     TIME (autoregressive decode), training consumes them all
+        #     in ONE parallel forward (teacher forcing)
+        #   peak_gib      = torch.cuda.max_memory_allocated() / 1024**3
+        #     meaningful per-step only because of the reset in (a)
+        rollout_tok_s = ...
+        train_tok_s = ...
+        peak_gib = ...
+
         sample = roll.responses[0][:120]
+        prof = {
+            "rollout_tok_s": rollout_tok_s,
+            "train_tok_s": train_tok_s,
+            "peak_gib": peak_gib,
+        }
         return (
             exp.rewards.mean().item(),
             (exp.rewards > 0).float().mean().item(),
             metrics,
             exp.n_response_tokens,
             sample,
+            prof,
         )
 
     step = 0
+    total_resp = 0
     while step < cfg.max_steps:
         step += 1
         t0 = time.perf_counter()
         try:
-            reward, acc, metrics, resp_tok, sample = run_one_step()
+            reward, acc, metrics, resp_tok, sample, prof = run_one_step()
+            total_resp += resp_tok
         except torch.OutOfMemoryError as e:
             # TODO P3.5: OOM diagnostics + batch-size fallback.
             #
@@ -149,9 +192,21 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> None:
             f"{metrics.get('ratio_max', float('nan')):.2f}] "
             f"| grad {metrics.get('grad_norm', float('nan')):.2f} "
             f"| resp_tok {resp_tok} "
-            f"| {time.perf_counter() - t0:.1f}s"
+            f"| peak {prof['peak_gib']:.2f}G "
+            f"| gen {prof['rollout_tok_s']:.0f} t/s "
+            f"| trn {prof['train_tok_s']:.0f} t/s "
+            f"| {time.perf_counter() - t0:.1f}s "
+            f"(roll {timer.last('rollout'):.1f} / "
+            f"prep {timer.last('prepare'):.1f} / "
+            f"train {timer.last('train'):.1f})"
         )
         print(f"  sample response: {sample!r}")
+
+    return {
+        "timer": timer,
+        "resp_tokens": total_resp,
+        "steps": cfg.max_steps,
+    }
 
 
 def main() -> None:
