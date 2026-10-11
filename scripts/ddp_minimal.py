@@ -163,7 +163,8 @@ def wrap_ddp(policy, device: torch.device):
     - ddp.module IS policy (the wrapper is a thin proxy); keep both
       references, (c) needs the raw one for the optimizer
     """
-    raise NotImplementedError("P8.1 (b)")
+    return DistributedDataParallel(policy, device_ids=[int(str(device).split(":")[1])])
+
 
 
 # --------------------------------------------------------------------------
