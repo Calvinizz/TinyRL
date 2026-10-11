@@ -146,8 +146,8 @@ class TestHFBackend:
         assert resp_att.tolist() == [1, 1, 1, 0, 0]
 
     def test_responses_decoded(self, hf_backend):
-        out = hf_backend.generate(["A?"])
-        assert len(out.responses) == 4
+        out = hf_backend.generate(["A?"])  # 1 question x G=2 -> 2 rows
+        assert len(out.responses) == 2
         assert all(isinstance(s, str) for s in out.responses)
 
 
