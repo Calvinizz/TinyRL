@@ -35,6 +35,7 @@ from pathlib import Path
 
 import torch
 import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
