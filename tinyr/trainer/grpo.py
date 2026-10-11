@@ -16,6 +16,11 @@ class GRPOTrainer:
             self.trainable, lr=cfg.lr, weight_decay=cfg.weight_decay
         )
         self._steps = 0
+        # P8.2 (DDP mode only): scripts/train_ddp.py sets this to
+        # world*rank_tok/total_tok so that DDP's gradient AVERAGE equals
+        # the exact global token mean despite per-rank token-mean losses.
+        # 1.0 keeps the single-process path bit-identical.
+        self.loss_scale = 1.0
 
     # ------------------------------------------------------------------
     # TODO 5-7: the GRPO core — port from scripts/train_grpo.py (Phase 1).
@@ -223,7 +228,7 @@ class GRPOTrainer:
                     # P5.3: under cfg.dynamic_batching replace with the
                     # token-weighted scale (see docstring above).
                 
-                    loss = loss / len(micro_batches)
+                    loss = loss * self.loss_scale / len(micro_batches)
                     loss.backward()
                 else:
                     sub = exp.rows(rows,trim=True)
@@ -236,7 +241,7 @@ class GRPOTrainer:
                         new_logprobs, sub.old_logprobs, sub.ref_logprobs,
                         sub.advantages, sub.response_mask, self.cfg,
                     )
-                    loss = loss * scale
+                    loss = loss * scale * self.loss_scale
                     loss.backward()
                     
 
