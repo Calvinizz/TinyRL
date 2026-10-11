@@ -376,10 +376,10 @@ Goal: the trainer shouldn't know how generation happens.
 
 > Phase 7 verified end-to-end on the 390 server (2026-10-11): same-silicon
 > decode 92 → 1235 tok/s (13.4x), contract byte-parity with the HF
-> backend, and weights flowing every optimizer step. Remaining loose end
-> tracked in docs/inference_study.md §6: the Phase-6 rematch on two GPUs
-> (rollout GPU 0 / training GPU 1) — the single-GPU "async is a wash"
-> verdict gets its dedicated-hardware appeal there.
+> backend, weights flowing every optimizer step, and the Phase-6 rematch
+> run (`benchmarks/rematch.md`): full chain at 0.71 s/step vs 8.93 s
+> lockstep — 12.6x — with the bottleneck flipped to the trainer (rollout
+> now runs ~2.4 steps ahead), which is exactly what Phase 8 attacks.
 
 > 2026-10-11 un-deferred: vLLM requires compute capability >= 7.0, which
 > the GTX 1080 Ti (sm_61) lacks — but Phase 7/8 now run on a 390 server

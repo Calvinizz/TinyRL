@@ -108,7 +108,7 @@ def train(cfg: TrainingConfig, prompts: list, mode: str) -> dict:
     cons_timer = Timer()   # consumer (main) thread's sections
 
     stats = {"steps": 0, "drops": 0, "lags": [], "resp_tokens": 0}
-    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.reset_peak_memory_stats(torch.device(cfg.device))
 
     # ---- producer side ------------------------------------------------
 
@@ -222,16 +222,22 @@ def train(cfg: TrainingConfig, prompts: list, mode: str) -> dict:
     wall = time.perf_counter() - wall_start
     lags = stats["lags"]
     mean_lag = sum(lags) / len(lags) if lags else 0.0
+    # peak of the TRAINER's device: with rollout on its own GPU
+    # (cfg.device="cuda:1"), the default-device query would report the
+    # engine's card instead — in THIS process the trainer is the only
+    # interesting allocator
+    dev = torch.device(cfg.device)
+    peak_gib = torch.cuda.max_memory_allocated(dev) / 1024**3
     print(
         f"[{mode}] trained {stats['steps']} | dropped {stats['drops']} "
         f"| lag mean {mean_lag:.2f} max {max(lags, default=0)} "
         f"| wall {wall:.1f}s | {stats['resp_tokens']} resp tok "
-        f"| peak {torch.cuda.max_memory_allocated() / 1024**3:.2f} GiB"
+        f"| peak {peak_gib:.2f} GiB on {cfg.device}"
     )
     return {
         **stats,
         "wall": wall,
-        "peak_gib": torch.cuda.max_memory_allocated() / 1024**3,
+        "peak_gib": peak_gib,
         "prod_timer": prod_timer,
         "cons_timer": cons_timer,
     }

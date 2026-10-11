@@ -116,8 +116,12 @@ A GRPO loop is a generation farm wearing a training hat:
   (vs HF static batching's 16 rows); engine at
   gpu_memory_utilization=0.35, leaving 16+ GiB for the trainer when
   co-located on a 24 GiB card
-- [ ] Phase 6 rematch: async across two GPUs vs one-GPU tie — after
-  P7.3 (weights must flow before the rematch means anything)
+- [x] Phase 6 rematch: async across two GPUs vs one-GPU tie —
+  `benchmarks/rematch.md` (3090, 4 legs): the P6 tie did not
+  replicate (+26% tok/s for hf async), the engine is worth 12.6x
+  wall / 9.7x tok/s, and the dedicated second GPU adds ~nothing at
+  toy scale — the bottleneck FLIPPED to the trainer (lag 2.4 =
+  rollout runs ahead), which is Phase 8's whole reason to exist
 
 ## 7. Weight synchronization — P7.3 notes *(design; implement on server)*
 
