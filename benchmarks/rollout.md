@@ -1,14 +1,15 @@
 # Phase 7 — Rollout Backend Benchmark (prefill vs decode)
 
-Hardware: see row source · Model: Qwen2.5-0.5B-Instruct + LoRA r16 ·
-Task: toy arithmetic · `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
+Model: Qwen2.5-0.5B-Instruct + LoRA r16 (HF rows) / static base weights
+(vLLM row — weight sync is P7.3) · Task: toy arithmetic ·
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`
 
 Workload: max_new_tokens=128, group_size=2.
 prefill = one no-grad forward over the prompt block (parallel);
 decode = the HF/vLLM autoregressive loop (serial). Tokens counted
 are REAL (attention-masked), padding excluded.
 
-## Results
+## Results — GTX 1080 Ti (local, 2026-10-11)
 
 | backend | batch | rows | prefill tok/s | decode tok/s | per-seq tok/s |
 |---|---|---|---|---|---|
@@ -17,8 +18,21 @@ are REAL (attention-masked), padding excluded.
 | hf | 4x2 | 8 | 5261 | 122 | 15.3 |
 | hf | 8x2 | 16 | 5700 | 162 | 10.1 |
 
-(HF rows: GTX 1080 Ti, measured 2026-10-11. The vLLM row joins on the
-390 server — rerun the same command there.)
+## Results — RTX 3090, 390 server (2026-10-11, fp16 engine)
+
+| backend | batch | rows | prefill tok/s | decode tok/s | per-seq tok/s |
+|---|---|---|---|---|---|
+| hf | 1x2 | 2 | 2048 | 23 | 11.3 |
+| hf | 2x2 | 4 | 4110 | 36 | 9.1 |
+| hf | 4x2 | 8 | 8200 | 59 | 7.3 |
+| hf | 8x2 | 16 | 14825 | 92 | 5.7 |
+| vllm | 8x2 | 16 | — | **1235** | **77.2** |
+
+(vLLM prefill is not separable — the engine schedules prefill and
+decode together; the 1235 is wall-clock tok/s of the whole
+generate() call. Engine: gpu_memory_utilization=0.35 → KV cache
+6.99 GiB = 610,384 tokens = 1192-way concurrency at 512 tokens/
+request, vs HF's 16 static rows.)
 
 ## Findings
 
@@ -55,3 +69,26 @@ The missing order of magnitude is Python-side per-step host time
 of small ops, and small effective batch — precisely the items vLLM
 attacks (C++/CUDA decode loop, fused kernels, iteration-level
 scheduling). The vLLM row on the 390 server will price those wins.
+
+**Finding 5 — cross-machine receipt: a 4x faster GPU made HF decode
+SLOWER (92 → 23 tok/s at 1x2), while prefill nearly tripled
+(5700 → 14825).** Decode throughput on HF `generate()` is bound by
+per-step HOST time, not silicon: the 3090 wins where compute wins
+(prefill GEMMs) and loses where the CPU does (the server's older
+per-core speed vs the local desktop, on a shared box). GPU shopping
+is not the fix for slow decode — removing the Python loop is.
+
+**Finding 6 — vLLM prices the loop removal: 13.4x on IDENTICAL
+silicon (92 → 1235 tok/s, batch 8x2; per-seq 5.7 → 77.2).** Same
+machine, same weights (fp16), same 16 rows — the only change is who
+runs the decode loop (Python per-token vs engine-side batched CUDA)
+and how KV/memory are managed (paged, 610k-token cache, continuous
+scheduling). Per-seq 77 tok/s also beats the 1080 Ti's TOTAL at
+any batch: an RL rollout worker on one 3090 engine now generates as
+fast as ~8 desktop-class HF workers. Remaining gap to roofline
+(3090: ~936 GB/s → ~900 tok/s/seq theoretical) is still ~10x, left
+in small effective batch (16 rows is nothing to this engine —
+concurrency headroom is 1192x) and our tiny model's launch floor.
+Caveat: engine boot ~40 s warm (torch.compile cache) and weights are
+STATIC — until P7.3 syncs the LoRA each step, this speed samples
+from a frozen policy.

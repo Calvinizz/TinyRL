@@ -99,15 +99,25 @@ A GRPO loop is a generation farm wearing a training hat:
    engine (§7) and every experience must reach the trainer (our
    `ExperienceQueue` + version stamps, Phase 6).
 
-## 6. vLLM measurements *(fill on the 390 server)*
+## 6. vLLM measurements *(390 server, 2026-10-11)*
 
-- [ ] vLLM vs HF decode tok/s, same prompts, batch 1/4/8
-  (`scripts/benchmark_rollout.py` adds the row automatically when
-  vllm is importable)
-- [ ] Per-sequence decode speed vs HF's ~12 tok/s ceiling
-- [ ] TTFT vs batch (prefill queueing effect)
-- [ ] KV-cache utilization report from the engine
-- [ ] Phase 6 rematch: async across two GPUs vs one-GPU tie
+- [x] vLLM vs HF decode tok/s, same prompts, batch 8x2 on identical
+  silicon: **92 → 1235 tok/s (13.4x)**; full table in
+  `benchmarks/rollout.md` (incl. the cross-machine receipt: 3090 HF
+  decode SLOWER than 1080 Ti — decode is host-bound, prefill is not)
+- [x] Per-sequence decode speed: HF 5.7 tok/s ceiling at 8x2 → vLLM
+  77.2 tok/s; also above the 1080 Ti's *total* throughput at any
+  batch (92–162 tok/s)
+- [ ] TTFT vs batch (prefill queueing effect) — not yet instrumented;
+  the engine mixes prefill into the decode schedule, so it needs
+  per-request timestamps to separate
+- [x] KV-cache utilization report from the engine: 6.99 GiB paged KV
+  = 610,384 tokens = 1192-way concurrency at 512 tokens/request
+  (vs HF static batching's 16 rows); engine at
+  gpu_memory_utilization=0.35, leaving 16+ GiB for the trainer when
+  co-located on a 24 GiB card
+- [ ] Phase 6 rematch: async across two GPUs vs one-GPU tie — after
+  P7.3 (weights must flow before the rematch means anything)
 
 ## 7. Weight synchronization — P7.3 notes *(design; implement on server)*
 

@@ -49,3 +49,6 @@ class TrainingConfig:
     # phase 6: rollout/training decoupling (scripts/train_async.py)
     queue_size: int = 2        # experience queue depth = async backpressure
     max_staleness: int = 3     # drop experiences sampled > this many versions back
+    # phase 7: dedicated vLLM rollout engine (390 server only)
+    gpu_memory_utilization: float = 0.35  # engine's share of one GPU (shared box: stay polite)
+    max_model_len: int = 512              # chat-templated prompt + max_new_tokens bound

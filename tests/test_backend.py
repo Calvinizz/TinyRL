@@ -162,11 +162,13 @@ class TestVLLMBackend:
         if not torch.cuda.is_available():
             pytest.skip("needs cuda")
         from tinyr.config import MODEL_PATH
+        from transformers import AutoTokenizer
 
         cfg = TrainingConfig(
             group_size=2, max_new_tokens=16, device="cuda", seed=0,
         )
-        backend = VLLMRolloutBackend(str(MODEL_PATH), None, cfg)
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+        backend = VLLMRolloutBackend(str(MODEL_PATH), tokenizer, cfg)
         out = backend.generate(["What is 2 + 3?", "What is 4 + 5?"])
         N, W = out.prompt_ids.shape
         assert N == 4 and out.prompt_width == W

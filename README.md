@@ -368,10 +368,10 @@ verl/OpenRLHF run dedicated rollout engines.
 
 Goal: the trainer shouldn't know how generation happens.
 
-- [ ] `RolloutBackend` interface (`generate(questions) -> RolloutResult`) *(framework: `tinyr/rollout/backend.py`; `RolloutWorker` is now a thin delegator)*
-- [ ] Hugging Face `generate()` backend behind it; trainer stays backend-agnostic *(TODO P7.1: port worker logic into `tinyr/rollout/hf_backend.py`; contract pinned by stub tests)*
-- [ ] Study: prefill vs decode, KV cache, continuous batching, PagedAttention — why RL systems use dedicated rollout engines *(docs/inference_study.md; `scripts/benchmark_rollout.py` → `benchmarks/rollout.md`)*
-- [ ] vLLM backend *(TODO P7.2, 390 server only: `tinyr/rollout/vllm_backend.py` — tests self-skip without vllm)*
+- [x] `RolloutBackend` interface (`generate(questions) -> RolloutResult`) *(framework: `tinyr/rollout/backend.py`; `RolloutWorker` is now a thin delegator)*
+- [x] Hugging Face `generate()` backend behind it; trainer stays backend-agnostic *(P7.1: `tinyr/rollout/hf_backend.py`, GPU-smoke bit-identical through delegation)*
+- [x] Study: prefill vs decode, KV cache, continuous batching, PagedAttention — why RL systems use dedicated rollout engines *(docs/inference_study.md; `benchmarks/rollout.md`: 35–45x asymmetry, plus the 390-server receipt — 3090 HF decode SLOWER than 1080 Ti, decode is host-bound)*
+- [x] vLLM backend *(P7.2, 390 server: `tinyr/rollout/vllm_backend.py` — offline template + TokensPrompt, n=G, left/right-pad reconstruction, EOS-in-token_ids verified against HF; **13.4x decode** over HF on the same 3090; tests self-skip without vllm, 89/89 green on server)*
 - [ ] Weight sync: LoRA hot-swap with versioned adapters, stamped into Phase 6's `policy_version` *(TODO P7.3, server; strategies compared in docs/inference_study.md §7)*
 
 > 2026-10-11 un-deferred: vLLM requires compute capability >= 7.0, which
