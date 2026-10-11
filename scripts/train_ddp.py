@@ -122,6 +122,12 @@ def run_parent(args) -> None:
 
     here = str(Path(__file__).resolve())
     common = dict(os.environ)
+    # hermetic engine startup — same pins, same reason, as
+    # tests/test_backend.py: flashinfer's JIT sampler nvcc-chokes on
+    # this box, and fork inherits a threaded parent that deadlocks
+    # vLLM's EngineCore. setdefault: shell values still win.
+    common.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
+    common.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
     common.update(
         {
             ENV_PORT: str(port),
