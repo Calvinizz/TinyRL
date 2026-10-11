@@ -82,10 +82,17 @@ def _manager_class():
 
 
 def host_queues(port: int, authkey: bytes, queue_size: int):
-    """Parent side: serve exp/cmd queues through a remote manager."""
-    import multiprocessing as mp
+    """Parent side: serve exp/cmd queues through a remote manager.
 
-    exp_q, cmd_q = mp.Queue(maxsize=queue_size), mp.Queue()
+    queue.Queue (thread queue), NOT mp.Queue: the manager is a threaded
+    server, and a plain queue travels as pure pickled bytes over the
+    manager socket. mp.Queue carries Pipes/Connections whose auto-
+    proxying detours through fd-passing (resource_sharer) — and the
+    authkey challenge there uses each process's own key, which blew up
+    the first run with AuthenticationError: digest sent was rejected.
+    """
+    exp_q = queue_mod.Queue(maxsize=queue_size)
+    cmd_q = queue_mod.Queue()
     Q = _manager_class()
     Q.register("exp_q", callable=lambda: exp_q)
     Q.register("cmd_q", callable=lambda: cmd_q)
@@ -363,7 +370,7 @@ def main() -> None:
     parser.add_argument("--world", type=int, default=2)
     parser.add_argument("--engine-gpu", type=int, default=0)
     parser.add_argument("--trainer-gpus", type=str, default="1,2")
-    parser.add_argument("--timeout", type=float, default=1800.0)
+    parser.add_argument("--timeout", type=float, default=600.0)
     args = parser.parse_args()
 
     if args.role == "parent":
