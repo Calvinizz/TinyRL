@@ -25,7 +25,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tinyr.config import DATA_PATH, TrainingConfig
-from tinyr.experience import Experience, ExperienceBuffer
+from tinyr.experience import Experience, ExperienceBuffer, padding_ratio
 from tinyr.models import ModelManager
 from tinyr.profiling import Timer
 from tinyr.reward import RewardManager
@@ -137,6 +137,10 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> dict:
             "rollout_tok_s": rollout_tok_s,
             "train_tok_s": train_tok_s,
             "peak_gib": peak_gib,
+            # share of the response BLOCK that is padding (P5.1)
+            "pad_ratio": padding_ratio(
+                exp.response_mask, exp.response_ids.shape[1]
+            ),
         }
         return (
             exp.rewards.mean().item(),
@@ -149,12 +153,16 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> dict:
 
     step = 0
     total_resp = 0
+    pad_sum = 0.0
+    peak_max = 0.0
     while step < cfg.max_steps:
         step += 1
         t0 = time.perf_counter()
         try:
             reward, acc, metrics, resp_tok, sample, prof = run_one_step()
             total_resp += resp_tok
+            pad_sum += prof["pad_ratio"]
+            peak_max = max(peak_max, prof["peak_gib"])
         except torch.OutOfMemoryError as e:
             # TODO P3.5: OOM diagnostics + batch-size fallback.
             #
@@ -194,6 +202,7 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> dict:
             f"{metrics.get('ratio_max', float('nan')):.2f}] "
             f"| grad {metrics.get('grad_norm', float('nan')):.2f} "
             f"| resp_tok {resp_tok} "
+            f"| pad {prof['pad_ratio']:.0%} "
             f"| peak {prof['peak_gib']:.2f}G "
             f"| gen {prof['rollout_tok_s']:.0f} t/s "
             f"| trn {prof['train_tok_s']:.0f} t/s "
@@ -208,6 +217,8 @@ def train(cfg: TrainingConfig, prompts: list[dict]) -> dict:
         "timer": timer,
         "resp_tokens": total_resp,
         "steps": cfg.max_steps,
+        "pad_ratio": pad_sum / cfg.max_steps,
+        "peak_gib": peak_max,
     }
 
 

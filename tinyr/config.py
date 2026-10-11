@@ -44,3 +44,5 @@ class TrainingConfig:
     micro_batch_size: int = 0   # rows per forward; 0 = whole batch at once
     gradient_checkpointing: bool = False
     ref_model_offload: bool = False
+    # phase 5: padding reduction
+    dynamic_batching: bool = False  # length-bucketed micro-batches + trim

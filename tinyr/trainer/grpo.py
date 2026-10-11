@@ -169,14 +169,41 @@ class GRPOTrainer:
         loop; zero_grad ONCE per inner epoch (not per micro-batch).
 
         Metrics: keep returning the last micro-batch's dict + grad_norm.
+
+        TODO P5.3 (Phase 5): when cfg.dynamic_batching, replace the
+        fixed micro-batches with length-bucketed ones AND make the
+        accumulation scale token-weighted — bucketed chunks hold
+        DIFFERENT token counts, and `1 / n_micro` is then biased (it
+        weights every chunk's mean equally instead of by its tokens).
+
+        The exact contract (tests/test_bucketing.py proves grads ==
+        full-batch even with unequal chunks):
+
+            total_tok = exp.response_mask[:, 1:].sum()       # ONCE
+            micro_batches = iter_micro_batches_bucketed(
+                exp.response_mask, cfg.micro_batch_size)
+            per micro-batch:
+                sub   = exp.rows(rows_list, trim=True)
+                scale = sub.response_mask[:, 1:].sum() / total_tok
+                (loss * scale).backward()
+
+        Two traps to avoid:
+        - the column shift: token counts are response_mask[:, 1:].sum()
+          (the [N, T-1] shifted view compute_grpo_loss actually masks
+          with), NOT response_mask.sum() — mixing them skews every
+          scale by one token per row.
+        - keep the non-dynamic path EXACTLY as it is (`1/len(...)`) so
+          the Phase-3 bit-identical verification still holds.
+        Telescoping check: sum of scales = sum(chunk toks)/total = 1,
+        and sum(scale * chunk_mean) = full-batch mean. Exact.
         """
         metrics: dict[str, float] = {}
         for inner_epoch in range(self.cfg.n_inner_epochs):
             micro_batches = list(iter_micro_batches(
                 exp.n_sequences, self.cfg.micro_batch_size
             ))
+            total_tok = exp.response_mask[:, 1:].sum()
             self.optimizer.zero_grad(set_to_none=True)
-            loss_all = 0
             for rows in micro_batches:
                 sub = exp.rows(rows)
                 new_logprobs = self.compute_logprobs(
@@ -187,7 +214,9 @@ class GRPOTrainer:
                     new_logprobs, sub.old_logprobs, sub.ref_logprobs,
                     sub.advantages, sub.response_mask, self.cfg,
                 )
-                # TODO P3.3: backward with the accumulation-correct scale
+                # baseline path: equal-size chunks -> 1/n_micro is exact.
+                # P5.3: under cfg.dynamic_batching replace with the
+                # token-weighted scale (see docstring above).
                 loss = loss / len(micro_batches)
                 loss.backward()
 

@@ -324,10 +324,10 @@ rollout engines (Phase 7).
 
 Goal: stop paying compute for padding tokens.
 
-- [ ] Measure padding ratio and the response-length distribution
-- [ ] Bucket samples by response length
-- [ ] Dynamic micro-batching driven by the buckets
-- [ ] Compare fixed vs dynamic batching throughput
+- [ ] Measure padding ratio and the response-length distribution *(TODO P5.1: `tinyr/experience/metrics.py`; pad% now in the step log)*
+- [ ] Bucket samples by response length *(TODO P5.2: `iter_micro_batches_bucketed` + `Experience.rows(trim=)`)*
+- [ ] Dynamic micro-batching driven by the buckets *(TODO P5.3: `cfg.dynamic_batching` branch in `train_step` — token-weighted accumulation so grads stay == full-batch even with unequal chunks)*
+- [ ] Compare fixed vs dynamic batching throughput *(run `scripts/benchmark_padding.py`, fill Findings)*
 
 ---
 

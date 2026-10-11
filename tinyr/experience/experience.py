@@ -58,23 +58,45 @@ class Experience:
         resp_position = position >= prompt_width
         return resp_position & attention_mask.bool()
 
-    def rows(self, idx) -> "Experience":
+    def rows(self, idx, trim: bool = False) -> "Experience":
         """A new Experience restricted to rows `idx` (list/slice/tensor).
 
         Tensors keep their widths — only the batch dim is indexed, so
         prompt padding stays intact. advantages / old_logprobs /
         ref_logprobs are sliced along when present.
+
+        trim=True (TODO P5.2 (a), Phase 5): also cut the response block
+        down to the longest REAL response among the selected rows —
+        right-side padding beyond that point is dropped, so the sliced
+        tensors are exactly as wide as the selected rows need. The
+        layout [left-pad][prompt][response][right-pad] means every row's
+        real content ENDS at column W + its response length, so:
+
+            new_R = max over selected rows of response_lengths
+            new_T = W + new_R
+
+        Slice prompt_ids not at all; response_ids[..., :new_R];
+        attention/response_mask[..., :new_T]; old/ref logprobs
+        [..., :new_T - 1] (they are shifted — T-1 wide). Left prompt
+        padding stays: trimming it would require re-shifting every row
+        (a refinement we skip; RoPE makes the left pad harmless).
         """
-        return Experience(
-            prompt_ids=self.prompt_ids[idx],
-            response_ids=self.response_ids[idx],
-            attention_mask=self.attention_mask[idx],
-            response_mask=self.response_mask[idx],
-            rewards=self.rewards[idx],
-            advantages=self.advantages[idx] if self.advantages is not None else None,
-            old_logprobs=self.old_logprobs[idx] if self.old_logprobs is not None else None,
-            ref_logprobs=self.ref_logprobs[idx] if self.ref_logprobs is not None else None,
-        )
+        if not trim:
+            return Experience(
+                prompt_ids=self.prompt_ids[idx],
+                response_ids=self.response_ids[idx],
+                attention_mask=self.attention_mask[idx],
+                response_mask=self.response_mask[idx],
+                rewards=self.rewards[idx],
+                advantages=self.advantages[idx] if self.advantages is not None else None,
+                old_logprobs=self.old_logprobs[idx] if self.old_logprobs is not None else None,
+                ref_logprobs=self.ref_logprobs[idx] if self.ref_logprobs is not None else None,
+            )
+        # TODO P5.2 (a): the trimmed branch — new_R / new_T as above,
+        # slice every [N, T] (and [N, T-1]) field to the new width and
+        # rebuild the Experience. Reuse the untrimmed branch's slicing
+        # pattern with the column limits applied.
+        raise NotImplementedError
 
     def __post_init__(self) -> None:
         """Validate shapes / dtypes / devices at construction time.
@@ -133,3 +155,25 @@ def iter_micro_batches(n_rows: int, micro_batch_size: int):
         list(range(start, min(start + micro_batch_size, n_rows)))
         for start in range(0, n_rows, micro_batch_size)
     )
+
+
+def iter_micro_batches_bucketed(
+    response_mask: torch.Tensor, micro_batch_size: int
+) -> list[list[int]]:
+    """TODO P5.2 (b): micro-batches of SIMILAR-length rows.
+
+    Sort row indices by real response length ascending — use
+    tinyr.experience.metrics.response_lengths (P5.1 (a)); torch.argsort
+    is stable, so equal lengths keep their original relative order
+    (determinism). Then chunk the sorted order into consecutive groups
+    of micro_batch_size (<=0 / None = one big batch, same convention as
+    iter_micro_batches).
+
+    Same-length rows land in the same chunk, so rows(..., trim=True)
+    cuts almost nothing per chunk — that is the entire Phase-5 win:
+    padding is paid per MICRO-BATCH width, not per full-batch width.
+
+    Returns a list of lists (train_step indexes it twice — once for
+    iteration, once for len()).
+    """
+    raise NotImplementedError
