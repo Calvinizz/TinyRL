@@ -126,10 +126,25 @@ def synthetic_batch(policy, cfg: TrainingConfig) -> tuple[torch.Tensor, torch.Te
 
 
 def local_loss(module, ids: torch.Tensor, attn: torch.Tensor) -> torch.Tensor:
-    """Deterministic differentiable loss — .float() so fp16 logits reduce
-    in fp32 and the later comparisons have headroom."""
-    logits = module(input_ids=ids, attention_mask=attn).logits
-    return logits.float().mean()
+    """Standard LM loss on the synthetic text: predict token t+1.
+
+    Cross-entropy, NOT logits.mean()/sum(): CE's per-logit gradient is
+    softmax - onehot, bounded in [-1, 1] — naturally inside fp16's
+    window. The naive losses both die, for opposite reasons (receipts
+    in git history):
+      mean over [N, T, V] ~ 1.9e7 elements -> per-logit grad ~5e-8,
+        BELOW fp16's smallest subnormal (6e-8): underflow to exact
+        zero through the 24 fp16 layers (printed grad|max|=0.0)
+      sum (or x1e2) -> intermediates accumulate over the 151936-wide
+        vocab dim past fp16's 65504 ceiling: inf -> nan
+    This tightrope is why mixed-precision training carries a dynamic
+    loss scaler (torch.amp.GradScaler) — and why real LM losses are
+    means over ~1e2 tokens, not ~1e7 logits."""
+    logits = module(input_ids=ids, attention_mask=attn).logits[:, :-1]
+    targets = ids[:, 1:]
+    return torch.nn.functional.cross_entropy(
+        logits.float().flatten(0, 1), targets.flatten()
+    )
 
 
 # --------------------------------------------------------------------------
@@ -152,7 +167,8 @@ def wrap_ddp(policy, device: torch.device):
 
 
 # --------------------------------------------------------------------------
-# TODO P8.1 (c) — prove the three claims ("梯度在哪合并、谁说了算")
+# P8.1 (c) — prove the three claims ("梯度在哪合并、谁说了算")
+# (written on request like (a); only (b) above remains yours)
 # --------------------------------------------------------------------------
 def verify_sync_semantics(ddp, policy, ids_r, attn_r, world_size: int) -> dict[str, bool]:
     """Run the DDP backward, then verify what AllReduce actually did.
@@ -194,7 +210,71 @@ def verify_sync_semantics(ddp, policy, ids_r, attn_r, world_size: int) -> dict[s
     Return {"ddp_eq_manual_avg": ..., "grad_same_across_ranks": ...,
             "replicas_identical_after_step": ...}.
     """
-    raise NotImplementedError("P8.1 (c)")
+    rank = dist.get_rank()  # the world knows who it is
+
+    # The probe must be the SAME tensor on every rank. Construction is
+    # seeded, so named_parameters() yields the same order everywhere;
+    # a rank-dependent probe choice would fake a claim-2 failure.
+    probe_name, probe = next(
+        (n, p) for n, p in policy.named_parameters()
+        if p.requires_grad and "lora_B" in n
+    )
+
+    def max_rel_err(a: torch.Tensor, b: torch.Tensor) -> float:
+        d = (a.float() - b.float()).abs().max().item()
+        s = max(a.float().abs().max().item(), b.float().abs().max().item(), 1e-12)
+        return d / s
+
+    # ---- claim 1: DDP's grad == the AVERAGE of local grads ----------
+    local_loss(ddp, ids_r, attn_r).backward()  # hooks fire AllReduce DURING
+    snapshot = probe.grad.detach().clone()     # backward: this IS where grads
+                                               # merge — before any step()
+    policy.zero_grad()
+    with ddp.no_sync():                       # same loss, gradients stay LOCAL
+        local_loss(ddp, ids_r, attn_r).backward()
+    manual = probe.grad.detach().clone()
+    dist.all_reduce(manual)                   # SUM is the default op
+    manual /= world_size                      # SUM -> mean: DDP's contract
+
+    rel_err = max_rel_err(manual, snapshot)
+    # 1e-2 is a margin, not a rubber stamp: a wrong scale (say you forgot
+    # /world_size) is off by ~world_size; a wrong tensor is off by O(1).
+    # fp16 summation-order noise between the two paths is ~1e-3.
+    claim1 = rel_err < 1e-2
+    print(f"[rank {rank}] probe={probe_name} "
+          f"grad|max|={snapshot.float().abs().max().item():.3e} rel_err={rel_err:.2e}")
+
+    # ---- claim 2: every rank holds the SAME gradient ----------------
+    # (full-tensor all_gather, not a checksum: LoRA-sized probes are
+    # tens of KB, so compare bitwise — stronger and still cheap)
+    gathered = [torch.empty_like(snapshot) for _ in range(world_size)]
+    dist.all_gather(gathered, snapshot)
+    claim2 = all(torch.equal(gathered[0], g) for g in gathered[1:])
+
+    # ---- claim 3: every rank steps its OWN optimizer, replicas agree -
+    # .grad still holds LOCAL values from claim 1's no_sync pass — stepping
+    # now would FORK the replicas (each rank moves its own way). One real
+    # synced backward first: that is what a training step actually is.
+    policy.zero_grad()
+    local_loss(ddp, ids_r, attn_r).backward()
+    trainable = [p for p in policy.parameters() if p.requires_grad]  # GRPOTrainer pattern
+    opt = torch.optim.AdamW(trainable, lr=1e-3, weight_decay=0.0)
+    # any lr / any rank: the claim is about AGREEMENT, not quality —
+    # nobody is in charge, every replica runs its own identical update
+    before = probe.detach().clone()
+    opt.step()
+    moved = not torch.equal(before, probe.detach())  # zero movement = the
+    # probe never participated -> the check would be vacuous
+    w = probe.detach().clone()
+    gathered_w = [torch.empty_like(w) for _ in range(world_size)]
+    dist.all_gather(gathered_w, w)
+    claim3 = moved and all(torch.equal(gathered_w[0], g) for g in gathered_w[1:])
+
+    return {
+        "ddp_eq_manual_avg": claim1,
+        "grad_same_across_ranks": claim2,
+        "replicas_identical_after_step": claim3,
+    }
 
 
 def main() -> None:
