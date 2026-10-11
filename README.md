@@ -394,11 +394,11 @@ Goal: the trainer shouldn't know how generation happens.
 
 Goal: the vocabulary needed to read production RL frameworks.
 
-- [ ] Data parallelism / DDP: gradient sync via AllReduce
-- [ ] FSDP — why sharding parameters reduces memory pressure
-- [ ] ZeRO stages 1 / 2 / 3
-- [ ] NCCL basics; when communication becomes the bottleneck
-- [ ] Hands-on: a minimal DDP example
+- [ ] Data parallelism / DDP: gradient sync via AllReduce *(P8.1 scaffolded: `scripts/ddp_minimal.py` — TODOs (a) process-group init from torchrun env, (b) the DDP wrap, (c) prove DDP grad == manual allreduce average / grads identical across ranks / replicas identical after each rank's own optimizer.step; helpers `tinyr/trainer/distributed.py` (`shard_for_rank`, `even_len`). Study: `docs/distributed_study.md` — why LoRA makes DDP ~comm-free: 8.7 MB vs 1.0 GB of gradients per step. Acceptance: `torchrun --nproc_per_node=3 scripts/ddp_minimal.py`, three True verdicts per rank — the red marker is the torchrun run, not pytest)*
+- [ ] FSDP — why sharding parameters reduces memory pressure *(study `docs/distributed_study.md` §5: the 16 B/param ledger + ZeRO 1/2/3 table — and why TinyRL's LoRA ledger leaves ZeRO nothing to save)*
+- [ ] ZeRO stages 1 / 2 / 3 *(§5, same table)*
+- [ ] NCCL basics; when communication becomes the bottleneck *(§3: ring AllReduce math `2(N-1)/N`, the 100x LoRA-vs-full-FT comm gap, §4 bucketing/overlap)*
+- [ ] Hands-on: a minimal DDP example *(P8.1 = the script above; P8.2 next: engine + DDP trainers on the 3-GPU box, topology decision in study §7)*
 
 > Deferred: tensor parallelism and pipeline parallelism (revisit later).
 
