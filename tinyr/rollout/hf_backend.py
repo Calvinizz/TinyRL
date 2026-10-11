@@ -11,11 +11,16 @@ from tinyr.rollout.backend import RolloutBackend, RolloutResult
 class HFRolloutBackend(RolloutBackend):
     """Group sampling with the in-process HF policy — the Phase 1-6 path.
 
-    This is a PORT, not new code: `RolloutWorker.generate` (Phase 2,
-    worker.py) moves here almost verbatim; the worker becomes a thin
-    delegator. Porting it yourself is the exercise — after this, the
-    trainer/pipeline no longer imports or knows about `policy.generate`
-    at all.
+    This is a PORT, not new code: the Phase-2 `RolloutWorker.generate`
+    (~30 lines) moves here almost verbatim, and the worker above
+    becomes a thin delegator. The original lives in git history (the
+    scaffold deleted it from worker.py on purpose — no copying files,
+    actual porting):
+
+        git show 1a1e446:tinyr/rollout/worker.py
+
+    Porting it yourself is the exercise — after this, the trainer/
+    pipeline no longer imports or knows about `policy.generate` at all.
 
     transformers 5.x quirks that still apply (they did in the worker):
       * `apply_chat_template(..., tokenize=True)` returns a
@@ -32,8 +37,8 @@ class HFRolloutBackend(RolloutBackend):
     def generate(self, questions: list[str]) -> RolloutResult:
         """TODO P7.1: port RolloutWorker.generate here, verbatim in spirit.
 
-        The 6 steps (all present in worker.py today — this is a move,
-        and tests/test_backend.py pins the contract with a stub policy):
+        The 6 steps (source: `git show 1a1e446:tinyr/rollout/worker.py`;
+        tests/test_backend.py pins the contract with a stub policy):
 
           1. chat-template each question -> per-question id lists
              (system + user, add_generation_prompt=True, tokenize=True)
