@@ -344,11 +344,23 @@ no-grad logprob passes (Phase 3 Finding 4 again).
 Goal: the core RL-system design pattern — producer/consumer with
 staleness control.
 
-- [ ] Experience queue between rollout and trainer *(P6.1: `ExperienceQueue` — bounded blocking hand-off built from deque + Condition; depth = backpressure)*
-- [ ] Rollout worker produces experiences; trainer consumes them *(producer thread / consumer loop in `scripts/train_async.py`, `--mode sync|async`)*
-- [ ] Policy version stamped on every experience *(P6.2: `PolicyVersion` thread-safe counter; `Experience.policy_version` stamped before `generate()` and carried through `rows()`)*
-- [ ] Staleness: log version lag, cap it with a max-staleness threshold *(P6.3 `policy_lag` + P6.4 consumer gate: drop experiences sampled more than `cfg.max_staleness` versions behind)*
-- [ ] Sync baseline vs simple async prototype: throughput comparison *(`scripts/benchmark_decoupling.py` → `benchmarks/decoupling.md`)*
+- [x] Experience queue between rollout and trainer *(P6.1: `ExperienceQueue` — bounded blocking hand-off built from deque + Condition; depth = backpressure)*
+- [x] Rollout worker produces experiences; trainer consumes them *(producer thread / consumer loop in `scripts/train_async.py`, `--mode sync|async`)*
+- [x] Policy version stamped on every experience *(P6.2: `PolicyVersion` thread-safe counter; `Experience.policy_version` stamped before `generate()` and carried through `rows()`)*
+- [x] Staleness: log version lag, cap it with a max-staleness threshold *(P6.3 `policy_lag` + P6.4 consumer gate: drop experiences sampled more than `cfg.max_staleness` versions behind)*
+- [x] Sync baseline vs simple async prototype: throughput comparison *(`scripts/benchmark_decoupling.py` → `benchmarks/decoupling.md`)*
+
+Verified: 80 unit tests green (queue blocking/FIFO/stress, lockless-bump
+race caught by a 4-thread test, stamp survives `rows()`); both modes run
+on GPU with sane metrics — sync lag 0.00 by construction, async lag
+mean 1.12 / max 2 at queue depth 2, and the staleness gate demonstrably
+drops when the queue is widened and the cap tightened (queue 6 / cap 1
+→ 1 drop of 8). Headline (`benchmarks/decoupling.md`): per-token
+throughput is a tie (46 tok/s both modes) — on a single GPU the two
+phases serialize on the same CUDA stream, so decoupling costs +38% peak
+memory and off-policy drift while buying nothing; the win requires
+rollout and training on separate devices, which is precisely why
+verl/OpenRLHF run dedicated rollout engines.
 
 ---
 

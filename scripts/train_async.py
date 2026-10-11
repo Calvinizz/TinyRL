@@ -129,7 +129,15 @@ def train(cfg: TrainingConfig, prompts: list, mode: str) -> dict:
         #     In sync mode this never fires (lag == 0 by construction);
         #     in async it is the valve that bounds off-policy drift.
         # ----------------------------------------------------------------
-        raise NotImplementedError("P6.4: staleness gate in the consumer")
+        lag = policy_lag(version.current,exp.policy_version)
+        stats["lags"].append(lag)
+        if lag > cfg.max_staleness:
+            stats["drops"] += 1
+            print(
+                f"drop | lag {lag} > max_staleness {cfg.max_staleness} "
+                f"| sampled v{exp.policy_version} | current v{version.current}"
+            )
+            return None
 
         with cons_timer.section("prepare"):  # old + ref logprobs (no grads)
             trainer.prepare(exp)

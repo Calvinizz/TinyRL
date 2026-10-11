@@ -43,7 +43,10 @@ class PolicyVersion:
         not safe). Return the value AFTER incrementing, so the caller
         can log "trained to version v".
         """
-        raise NotImplementedError
+        with self._lock:
+            self._v += 1
+            return self._v
+        
 
 
 def policy_lag(current_version: int, stamped_version: int) -> int:
@@ -63,4 +66,4 @@ def policy_lag(current_version: int, stamped_version: int) -> int:
                    left unclamped so bugs show up as nonsense instead
                    of being silently folded into 0.
     """
-    raise NotImplementedError
+    return current_version - stamped_version

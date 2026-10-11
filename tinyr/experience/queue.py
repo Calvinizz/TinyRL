@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import threading
 from collections import deque
-from collections.abc import Callable
 
 from tinyr.experience.experience import Experience
 
@@ -51,14 +50,25 @@ class ExperienceQueue:
 
         Count every successful put in _n_put (under the lock).
         """
-        raise NotImplementedError
+        with self._cond:
+            while len(self._items) >= self._maxsize:
+                self._cond.wait()
+            self._items.append(item)
+            self._n_put = self._n_put + 1
+            self._cond.notify_all()
 
     def get(self) -> Experience | None:
         """TODO P6.1 (b): dequeue one item; BLOCK while the queue is empty.
 
         Count every successful get in _n_get (under the lock).
         """
-        raise NotImplementedError
+        with self._cond:
+            while len(self._items) <= 0:
+                self._cond.wait()
+            item = self._items.popleft()
+            self._n_get += 1
+            self._cond.notify_all()
+            return item
 
     def __len__(self) -> int:
         """Current depth (advisory under races — fine for logging)."""
