@@ -230,7 +230,9 @@ class TestVLLMWeightSync:
         from tinyr.config import MODEL_PATH
 
         cfg = TrainingConfig(  # greedy: sampling noise off, weights only
-            group_size=2, max_new_tokens=16, device="cuda", seed=0,
+            # vLLM forbids n>1 with temperature=0 (identical greedy
+            # samples are pointless) — so G=1 for this probe; N = 2 rows
+            group_size=1, max_new_tokens=16, device="cuda", seed=0,
             temperature=0.0,
         )
         tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
