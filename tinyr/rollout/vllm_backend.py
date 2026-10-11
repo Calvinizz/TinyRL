@@ -98,8 +98,6 @@ class VLLMRolloutBackend(RolloutBackend):
         self.served_version = version
 
     def generate(self, questions: list[str]) -> RolloutResult:
-
-    def generate(self, questions: list[str]) -> RolloutResult:
         from vllm import SamplingParams
         from vllm.inputs import TokensPrompt
 
