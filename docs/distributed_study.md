@@ -149,13 +149,35 @@ Supervised training parallelizes ONE axis (the gradient). RL has three:
 
 This is verl's actor/rolloff split; mapping TinyRL onto it is Phase 9.
 
-## 7. P8.1 → P8.2 plan
+## 7. P8.1 receipts → P8.2 plan
 
-P8.1 (`scripts/ddp_minimal.py`, current): the three claims above,
-verified by hand on synthetic data — TODOs are (a) process-group init,
-(b) the DDP wrap, (c) the proofs.
+P8.1 (done, 2026-10-11, 3 × 3090 + NCCL, `scripts/ddp_minimal.py`):
+three ranks, 4 rows each of a 12-row synthetic batch. Receipts:
 
-P8.2 (once green): engine + DDP trainers on the 3-GPU box. Two viable
+- `ddp_eq_manual_avg` at rel_err **6.35e-08** — the hand-rolled
+  SUM-then-divide and DDP's internal averaging agree to near-bitwise;
+  the fp16 summation-order worry that motivated the 1e-2 margin was
+  an order-of-magnitude overestimate (the margin stays as insurance).
+- grads and post-step weights **bitwise-identical** across ranks
+  (full-tensor `all_gather`, `torch.equal`) — claims 2 and 3.
+
+Two fp16 range bugs were caught by the `moved` guard on the way, both
+worth internalizing:
+
+- `logits.mean()` over [4, 32, 151936]: per-logit grad 5e-8, below
+  fp16's smallest subnormal (6e-8) — gradients arrived EXACTLY ZERO
+  through the 24 fp16 layers. Underflow mode.
+- `logits.sum()` (and ×1e2): intermediates accumulate past fp16's
+  65504 ceiling over the 151936-wide vocab dim — inf → nan. Overflow
+  mode.
+
+The fix is a bounded-gradient loss (next-token cross-entropy:
+per-logit grad = softmax − onehot ∈ [−1, 1], the same scale as the
+real GRPO trainer). Real mixed-precision training instead carries a
+dynamic loss scaler (`torch.amp.GradScaler`) because real losses
+wander across this window as the model trains.
+
+P8.2 (next): engine + DDP trainers on the 3-GPU box. Two viable
 topologies, decision deferred to scaffold time:
 
 - **rank-0 dual role**: torchrun world of N; rank 0 hosts the vLLM

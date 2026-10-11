@@ -12,9 +12,10 @@ Three claims, seen instead of trusted:
      AdamW = replicas stay identical forever. The agreement is the
      average, not a master.
 
-The loss is deliberately NOT RL — `logits.mean()` on a fixed synthetic
-batch. Phase 8 wants the distributed primitives in isolation first;
-the RL wiring is P8.2.
+The loss is deliberately NOT RL — next-token cross-entropy on a fixed
+synthetic batch (the two naive losses die in opposite fp16 directions;
+see local_loss). Phase 8 wants the distributed primitives in isolation
+first; the RL wiring is P8.2.
 
 Run on the server (3 free GPUs, real NCCL):
     cd /data/zy/TinyRL && source scripts/server_env.sh
@@ -47,8 +48,7 @@ N_TOKENS = 32
 
 
 # --------------------------------------------------------------------------
-# P8.1 (a) — join the process group (written on request, 2026-10-11;
-# (b) and (c) below remain the reader's)
+# P8.1 (a) — join the process group (walkthrough version)
 # --------------------------------------------------------------------------
 def setup_distributed() -> tuple[int, int, int, torch.device]:
     """Read torchrun's environment and join the NCCL world.
@@ -148,7 +148,7 @@ def local_loss(module, ids: torch.Tensor, attn: torch.Tensor) -> torch.Tensor:
 
 
 # --------------------------------------------------------------------------
-# TODO P8.1 (b) — the DDP wrapper
+# P8.1 (b) — the DDP wrapper (user)
 # --------------------------------------------------------------------------
 def wrap_ddp(policy, device: torch.device):
     """Wrap the WHOLE peft model; return the DistributedDataParallel.
@@ -169,7 +169,6 @@ def wrap_ddp(policy, device: torch.device):
 
 # --------------------------------------------------------------------------
 # P8.1 (c) — prove the three claims ("梯度在哪合并、谁说了算")
-# (written on request like (a); only (b) above remains yours)
 # --------------------------------------------------------------------------
 def verify_sync_semantics(ddp, policy, ids_r, attn_r, world_size: int) -> dict[str, bool]:
     """Run the DDP backward, then verify what AllReduce actually did.

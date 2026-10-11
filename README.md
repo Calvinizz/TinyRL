@@ -394,11 +394,12 @@ Goal: the trainer shouldn't know how generation happens.
 
 Goal: the vocabulary needed to read production RL frameworks.
 
-- [ ] Data parallelism / DDP: gradient sync via AllReduce *(P8.1 scaffolded: `scripts/ddp_minimal.py` — TODOs (a) process-group init from torchrun env, (b) the DDP wrap, (c) prove DDP grad == manual allreduce average / grads identical across ranks / replicas identical after each rank's own optimizer.step; helpers `tinyr/trainer/distributed.py` (`shard_for_rank`, `even_len`). Study: `docs/distributed_study.md` — why LoRA makes DDP ~comm-free: 8.7 MB vs 1.0 GB of gradients per step. Acceptance: `torchrun --nproc_per_node=3 scripts/ddp_minimal.py`, three True verdicts per rank — the red marker is the torchrun run, not pytest)*
-- [ ] FSDP — why sharding parameters reduces memory pressure *(study `docs/distributed_study.md` §5: the 16 B/param ledger + ZeRO 1/2/3 table — and why TinyRL's LoRA ledger leaves ZeRO nothing to save)*
-- [ ] ZeRO stages 1 / 2 / 3 *(§5, same table)*
-- [ ] NCCL basics; when communication becomes the bottleneck *(§3: ring AllReduce math `2(N-1)/N`, the 100x LoRA-vs-full-FT comm gap, §4 bucketing/overlap)*
-- [ ] Hands-on: a minimal DDP example *(P8.1 = the script above; P8.2 next: engine + DDP trainers on the 3-GPU box, topology decision in study §7)*
+- [x] Data parallelism / DDP: gradient sync via AllReduce *(P8.1 `scripts/ddp_minimal.py`: the three claims VERIFIED on 3x3090 + NCCL — DDP grad == manual allreduce average at rel_err 6.4e-08, grads bitwise-identical across ranks, replicas bitwise-identical after each rank's own AdamW step. Helpers `tinyr/trainer/distributed.py` (`shard_for_rank` strided, `even_len` backward-parity))*
+- [x] FSDP — why sharding parameters reduces memory pressure *(study `docs/distributed_study.md` §5: the 16 B/param ledger + ZeRO table on TinyRL's numbers — and why our LoRA ledger (~1.0 GB of state) leaves ZeRO nothing to shard; activations are our memory and plain DDP already shards those via row-splitting)*
+- [x] ZeRO stages 1 / 2 / 3 *(§5: what each stage shards, what FSDP's transient allgather costs)*
+- [x] NCCL basics; when communication becomes the bottleneck *(§3: ring AllReduce `2(N-1)/N` arithmetic — LoRA 8.7 MB vs full-FT 1.0 GB per step, the 100x comm gap that mirrors Phase 7's weight-sync finding; §4 bucketing/overlap and `no_sync()`)*
+- [x] Hands-on: a minimal DDP example *(P8.1, 2026-10-11: 3 ranks × 3 claims True, 4 rows/rank, exit 0. Two fp16 scaffold bugs caught on the way — `logits.mean()` underflow (per-logit grad 5e-8 < min subnormal 6e-8, gradients arrived exactly zero) and `logits.sum()` overflow (inf→nan past 65504) — fixed with bounded-gradient cross-entropy; the tightrope is why GradScaler exists, receipts in git history)*
+- [ ] P8.2: engine + DDP trainers in one world — rank 0 hosts the vLLM engine and syncs weights from its post-allreduce replica (P7.3 machinery unchanged), all ranks train on the same experiences; topology options in study §7
 
 > Deferred: tensor parallelism and pipeline parallelism (revisit later).
 
