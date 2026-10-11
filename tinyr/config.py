@@ -46,3 +46,6 @@ class TrainingConfig:
     ref_model_offload: bool = False
     # phase 5: padding reduction
     dynamic_batching: bool = False  # length-bucketed micro-batches + trim
+    # phase 6: rollout/training decoupling (scripts/train_async.py)
+    queue_size: int = 2        # experience queue depth = async backpressure
+    max_staleness: int = 3     # drop experiences sampled > this many versions back

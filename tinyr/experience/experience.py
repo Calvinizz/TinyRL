@@ -27,6 +27,12 @@ class Experience:
     old_logprobs: torch.Tensor | None = None  # FloatTensor [N, T-1]
     ref_logprobs: torch.Tensor | None = None  # FloatTensor [N, T-1]
 
+    # Phase 6: which policy version this batch was SAMPLED under.
+    # Stamped by the producer before generate(); the consumer measures
+    # policy_lag(trainer_version, this). rows() must carry it along —
+    # a sub-Experience inherits the stamp of the batch it came from.
+    policy_version: int = 0
+
     @property
     def input_ids(self) -> torch.Tensor:
         """[N, T] full sequence — prompt_ids and response_ids side by side."""
@@ -91,6 +97,7 @@ class Experience:
                 advantages=self.advantages[idx] if self.advantages is not None else None,
                 old_logprobs=self.old_logprobs[idx] if self.old_logprobs is not None else None,
                 ref_logprobs=self.ref_logprobs[idx] if self.ref_logprobs is not None else None,
+                policy_version=self.policy_version,
             )
         # TODO P5.2 (a): the trimmed branch — new_R / new_T as above,
         # slice every [N, T] (and [N, T-1]) field to the new width and
@@ -109,6 +116,7 @@ class Experience:
                  advantages=self.advantages[idx] if self.advantages is not None else None,
                  old_logprobs=self.old_logprobs[idx][...,:new_t - 1] if self.old_logprobs is not None else None,
                  ref_logprobs=self.ref_logprobs[idx][...,:new_t - 1] if self.ref_logprobs is not None else None,
+                 policy_version=self.policy_version,
              )
         
     def __post_init__(self) -> None:

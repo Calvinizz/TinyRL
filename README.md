@@ -344,11 +344,11 @@ no-grad logprob passes (Phase 3 Finding 4 again).
 Goal: the core RL-system design pattern — producer/consumer with
 staleness control.
 
-- [ ] Experience queue between rollout and trainer
-- [ ] Rollout worker produces experiences; trainer consumes them
-- [ ] Policy version stamped on every experience
-- [ ] Staleness: log version lag, cap it with a max-staleness threshold
-- [ ] Sync baseline vs simple async prototype: throughput comparison
+- [ ] Experience queue between rollout and trainer *(P6.1: `ExperienceQueue` — bounded blocking hand-off built from deque + Condition; depth = backpressure)*
+- [ ] Rollout worker produces experiences; trainer consumes them *(producer thread / consumer loop in `scripts/train_async.py`, `--mode sync|async`)*
+- [ ] Policy version stamped on every experience *(P6.2: `PolicyVersion` thread-safe counter; `Experience.policy_version` stamped before `generate()` and carried through `rows()`)*
+- [ ] Staleness: log version lag, cap it with a max-staleness threshold *(P6.3 `policy_lag` + P6.4 consumer gate: drop experiences sampled more than `cfg.max_staleness` versions behind)*
+- [ ] Sync baseline vs simple async prototype: throughput comparison *(`scripts/benchmark_decoupling.py` → `benchmarks/decoupling.md`)*
 
 ---
 
