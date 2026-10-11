@@ -146,3 +146,23 @@ until told. Three strategies, cheapest first:
 
 TinyRL order: strategy 1 for P7.3 (smallest delta to the Phase-6
 stamping machinery), study 2's code path during Phase 9.
+
+Acceptance probes for strategy 1 (both in
+`tests/test_backend.py::TestVLLMWeightSync`, one engine boot):
+
+- **zero-adapter identity**: a FRESH peft LoRA has `lora_B = 0`
+  (that is why day-0 training starts at base behavior), so
+  `W + (alpha/r)·B·A == W` exactly. Greedy outputs from the synced
+  engine must be token-identical to the unsynced one — any scale
+  misread (alpha/r), dtype mismatch, or module-name mapping error
+  perturbs logits and flips greedy somewhere in 16 tokens.
+- **big perturbation**: filling `lora_B` with N(0, 0.5) noise must
+  change outputs; if not, the sync silently no-opped — the classic
+  trap is an unversioned LoRARequest name (the engine caches
+  adapters by NAME, so "policy" twice = second sync ignored).
+
+Stamp discipline (wired in `scripts/train_async.py`): the producer
+stamps `backend.served_version` (not the trainer's current version)
+— an engine lagging between syncs then produces honestly-stamped
+stale experiences, and the Phase-6 staleness gate does its job
+instead of being lied to.

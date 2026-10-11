@@ -63,6 +63,30 @@ from tinyr.rollout import RolloutWorker
 from tinyr.trainer import GRPOTrainer, PolicyVersion, policy_lag
 
 
+def sync_weights(backend, policy, version: int) -> None:
+    """TODO P7.3 (c): ship the trainer's current LoRA to the engine.
+
+      cache = Path(__file__).resolve().parents[1] / "lora_cache"
+      d = cache / f"v{version}"
+      policy.save_pretrained(d)      # peft: adapter_config.json +
+                                     # adapter_model.safetensors (~9 MiB)
+      backend.sync_policy(version, str(d))
+
+    Pits:
+      * the DIRECTORY must be per-version (lora_cache/v{version}) —
+        overwriting one fixed path races the engine's adapter-cache
+        key (which is the LoRARequest NAME, also versioned).
+      * call it AFTER version.bump() with the new number, so name,
+        path and stamp agree. Experiences produced before the sync
+        lands are stamped from backend.served_version (the old one) —
+        honest lag, exactly what the staleness gate is for.
+      * lora_cache/ is gitignored; it grows ~9 MiB per step, prune old
+        versions when convenient (keep the newest: it is the one
+        reloadable for eval).
+    """
+    raise NotImplementedError("P7.3 (c): save versioned adapter + sync")
+
+
 def train(cfg: TrainingConfig, prompts: list, mode: str) -> dict:
     """Run the pipeline in `mode`; returns stats for the benchmark."""
     assert mode in ("sync", "async")
@@ -70,7 +94,18 @@ def train(cfg: TrainingConfig, prompts: list, mode: str) -> dict:
     torch.manual_seed(cfg.seed)
 
     model_mgr = ModelManager(cfg)
-    rollout_worker = RolloutWorker(model_mgr.policy, model_mgr.tokenizer, cfg)
+    if cfg.rollout_backend == "vllm":
+        from tinyr.config import MODEL_PATH
+        from tinyr.rollout.vllm_backend import VLLMRolloutBackend
+
+        backend = VLLMRolloutBackend(
+            str(MODEL_PATH), model_mgr.tokenizer, cfg
+        )
+    else:
+        backend = None  # RolloutWorker defaults to HFRolloutBackend
+    rollout_worker = RolloutWorker(
+        model_mgr.policy, model_mgr.tokenizer, cfg, backend=backend
+    )
     reward_mgr = RewardManager()
     trainer = GRPOTrainer(model_mgr.policy, model_mgr.ref, cfg)
 
@@ -91,9 +126,14 @@ def train(cfg: TrainingConfig, prompts: list, mode: str) -> dict:
             r["answer"] for r in questions for _ in range(cfg.group_size)
         ]
         # stamp BEFORE generate(): the weights being sampled from are
-        # version `v` right now (the consumer may bump mid-generate in
-        # async mode — the stamp records where sampling STARTED).
-        v = version.current
+        # version `v` right now. P7.3 sharpened this: a dedicated
+        # engine lags the trainer between sync_policy() calls, and
+        # stamping the trainer's CURRENT version would understate lag —
+        # stamp what the backend is actually SERVING (None = it shares
+        # the policy object, so "current" is the honest stamp).
+        v = rollout_worker.backend.served_version
+        if v is None:
+            v = version.current
         with prod_timer.section("rollout"):
             roll = rollout_worker.generate([r["question"] for r in questions])
         with prod_timer.section("reward"):
@@ -144,6 +184,9 @@ def train(cfg: TrainingConfig, prompts: list, mode: str) -> dict:
         with cons_timer.section("train"):    # forward + backward + step
             metrics = trainer.train_step(exp)
         version.bump()  # one optimizer step = one version
+        if cfg.rollout_backend == "vllm":
+            sync_weights(rollout_worker.backend, model_mgr.policy,
+                         version.current)
 
         stats["steps"] += 1
         stats["resp_tokens"] += exp.n_response_tokens

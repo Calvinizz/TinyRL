@@ -52,3 +52,4 @@ class TrainingConfig:
     # phase 7: dedicated vLLM rollout engine (390 server only)
     gpu_memory_utilization: float = 0.35  # engine's share of one GPU (shared box: stay polite)
     max_model_len: int = 512              # chat-templated prompt + max_new_tokens bound
+    rollout_backend: str = "hf"           # "hf" | "vllm" — who runs generate()

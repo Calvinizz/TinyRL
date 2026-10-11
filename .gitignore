@@ -49,3 +49,6 @@ htmlcov/
 
 # Profiler traces (Phase 4: torch.profiler chrome traces)
 *.trace.json
+
+# Phase 7.3: versioned LoRA adapters shipped to the rollout engine
+/lora_cache/

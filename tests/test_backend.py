@@ -187,3 +187,92 @@ class TestVLLMBackend:
                     seen_one = True
                 elif seen_one:
                     closed = True
+
+
+# ---------------------------------------------------------------- P7.3 (sync)
+
+
+class TestSyncContract:
+    def test_default_sync_is_free_for_shared_weight_backends(self):
+        class Recording(RolloutBackend):
+            def generate(self, questions):
+                return make_result()
+
+        backend = Recording()
+        assert backend.served_version is None
+        # the no-op must not even look at the path (HF shares the
+        # policy object — there is nothing to load)
+        backend.sync_policy(7, "/nonexistent/path")
+        assert backend.served_version is None
+
+
+class TestVLLMWeightSync:
+    """P7.3 acceptance: weights must FLOW and be applied exactly.
+
+    Two probes, one engine boot:
+      * zero-adapter identity — a fresh peft LoRA has lora_B = 0, so
+        base + B@A == base mathematically; greedy outputs must be
+        token-identical to the unsynced engine. This catches scale
+        (alpha/r misread), dtype, and module-mapping bugs — any of
+        them perturbs logits and greedy flips somewhere.
+      * big perturbation — filling lora_B with noise must change
+        outputs; if it doesn't, sync is a silent no-op (the classic
+        unversioned-LoRARequest-name cache trap).
+    """
+
+    def test_sync_flow(self, tmp_path):
+        pytest.importorskip("vllm")
+        if not torch.cuda.is_available():
+            pytest.skip("needs cuda")
+        from peft import LoraConfig, get_peft_model
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        from tinyr.config import MODEL_PATH
+
+        cfg = TrainingConfig(  # greedy: sampling noise off, weights only
+            group_size=2, max_new_tokens=16, device="cuda", seed=0,
+            temperature=0.0,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+        backend = VLLMRolloutBackend(str(MODEL_PATH), tokenizer, cfg)
+        questions = ["What is 2 + 3?", "What is 4 + 5?"]
+
+        base = backend.generate(questions)  # engine's static base weights
+
+        policy = get_peft_model(
+            AutoModelForCausalLM.from_pretrained(
+                MODEL_PATH, dtype=torch.float16
+            ),
+            LoraConfig(
+                r=cfg.lora_rank,
+                lora_alpha=cfg.lora_alpha,
+                lora_dropout=0.0,
+                target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+                task_type="CAUSAL_LM",
+            ),
+        ).eval()
+
+        d1 = tmp_path / "v1"
+        policy.save_pretrained(d1)
+        backend.sync_policy(1, str(d1))
+        assert backend.served_version == 1
+        zero = backend.generate(questions)
+        assert torch.equal(zero.response_ids, base.response_ids), (
+            "zero adapter (lora_B == 0) changed greedy outputs — the "
+            "engine is not applying the adapter identity; suspect "
+            "scale/dtype/module mapping"
+        )
+
+        with torch.no_grad():
+            for name, p in policy.named_parameters():
+                if "lora_B" in name:
+                    p.normal_(0.0, 0.5)
+        d2 = tmp_path / "v2"
+        policy.save_pretrained(d2)
+        backend.sync_policy(2, str(d2))
+        assert backend.served_version == 2
+        perturbed = backend.generate(questions)
+        assert not torch.equal(perturbed.response_ids, base.response_ids), (
+            "big lora_B perturbation changed nothing — sync is a silent "
+            "no-op; suspect the unversioned adapter-name cache"
+        )

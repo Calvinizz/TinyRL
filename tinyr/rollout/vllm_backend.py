@@ -54,11 +54,11 @@ class VLLMRolloutBackend(RolloutBackend):
       5. decoded strings: tokenizer.batch_decode(skip_special_tokens)
       6. tensors moved to cfg.device before returning
 
-    Weight sync with the trainer is deliberately OUT of scope here —
-    see the P7.3 notes in docs/inference_study.md (vLLM LoRA hot-swap
-    with versioned adapter names vs. verl-style collective_rpc push).
-    This version samples from STATIC weights; enough to measure what
-    the engine buys.
+    Weight sync (P7.3): sync_policy(version, adapter_path) swaps the
+    engine's adapter via a versioned LoRARequest and stamps
+    served_version; the trainer-side save+call lives in
+    scripts/train_async.py::sync_weights. Strategy notes and the
+    verl-style alternative: docs/inference_study.md §7.
     """
 
     def __init__(self, model_path: str, tokenizer, cfg: TrainingConfig):
@@ -72,7 +72,32 @@ class VLLMRolloutBackend(RolloutBackend):
             gpu_memory_utilization=cfg.gpu_memory_utilization,
             max_model_len=cfg.max_model_len,
             seed=cfg.seed,
+            enable_lora=True,          # P7.3: adapters applied per request
+            max_loras=1,               # we serve exactly one policy
+            max_lora_rank=cfg.lora_rank,
         )
+        self._lora = None              # active LoRARequest until P7.3 syncs
+
+    def sync_policy(self, version: int, adapter_path: str) -> None:
+        """TODO P7.3 (a): register `adapter_path` as the weights that
+        future generate() calls sample from.
+
+          from vllm import LoRARequest          # lazy, as always
+          self._lora = LoRARequest(name=f"policy_v{version}",
+                                   path=adapter_path)
+          self.served_version = version
+
+        Pits, both bite silently:
+          * the NAME is the engine's adapter-cache key. Version it —
+            an unversioned name ("policy") makes every sync after the
+            first a NO-OP (engine reuses the cached adapter forever).
+          * set served_version LAST: generate() threads self._lora into
+            llm.generate(lora_request=...) already (see below), and
+            produce_one() stamps experiences from served_version — the
+            two must flip together or a rollout can be sampled at v1
+            while stamped v2.
+        """
+        raise NotImplementedError("P7.3 (a): versioned LoRARequest")
 
     def generate(self, questions: list[str]) -> RolloutResult:
         from vllm import SamplingParams
@@ -105,7 +130,10 @@ class VLLMRolloutBackend(RolloutBackend):
             max_tokens=self.cfg.max_new_tokens,
         )
         outputs = self.llm.generate(
-            prompts, sampling_params=sampling_params, use_tqdm=False
+            prompts,
+            sampling_params=sampling_params,
+            use_tqdm=False,
+            lora_request=self._lora,   # None until P7.3 syncs an adapter
         )
 
         # 3. reconstruct left-padded prompts (question-major rows)

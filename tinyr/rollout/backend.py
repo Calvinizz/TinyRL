@@ -47,7 +47,29 @@ class RolloutBackend(ABC):
     question, and returns N = B * G rows in question-major order.
     """
 
+    # Version of the weights this backend is currently SERVING. None
+    # means "tracks the policy object in memory" (the HF case): there
+    # is no sync step, so the only honest stamp is the trainer's
+    # current version at generate() time. A dedicated engine sets this
+    # in sync_policy(); the producer stamps experiences from it, so an
+    # engine that lags behind the trainer produces honestly-stamped
+    # stale experiences instead of current-stamped lies.
+    served_version: int | None = None
+
     @abstractmethod
     def generate(self, questions: list[str]) -> RolloutResult:
         """Sample `group_size` responses per question."""
         raise NotImplementedError
+
+    def sync_policy(self, version: int, adapter_path: str) -> None:
+        """Push a trainer-side LoRA checkpoint into the engine (P7.3).
+
+        `adapter_path` is a peft `save_pretrained` directory
+        (adapter_config.json + adapter_model.safetensors, ~9 MiB for
+        r16 on q/k/v/o). Default: no-op — HFRolloutBackend shares the
+        policy module with the trainer, whose optimizer.step() mutates
+        it in place, so the "sync" already happened for free. That free
+        lunch is exactly what a separate engine loses and must buy
+        back explicitly (vLLM: versioned LoRARequest).
+        """
+
