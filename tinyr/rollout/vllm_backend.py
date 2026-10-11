@@ -79,25 +79,25 @@ class VLLMRolloutBackend(RolloutBackend):
         self._lora = None              # active LoRARequest until P7.3 syncs
 
     def sync_policy(self, version: int, adapter_path: str) -> None:
-        """TODO P7.3 (a): register `adapter_path` as the weights that
-        future generate() calls sample from.
+        """Register `adapter_path` as the weights future generate()
+        calls sample from (P7.3, strategy 1: LoRA hot-swap).
 
-          from vllm import LoRARequest          # lazy, as always
-          self._lora = LoRARequest(name=f"policy_v{version}",
-                                   path=adapter_path)
-          self.served_version = version
-
-        Pits, both bite silently:
-          * the NAME is the engine's adapter-cache key. Version it —
-            an unversioned name ("policy") makes every sync after the
-            first a NO-OP (engine reuses the cached adapter forever).
-          * set served_version LAST: generate() threads self._lora into
-            llm.generate(lora_request=...) already (see below), and
-            produce_one() stamps experiences from served_version — the
-            two must flip together or a rollout can be sampled at v1
-            while stamped v2.
+        vLLM 0.26 signature: LoRARequest(lora_name, lora_int_id,
+        lora_path) — the engine caches adapters by `lora_int_id`, so
+        the version number IS the cache key: every sync is a fresh
+        entry, and an unversioned id/name would make every sync after
+        the first a silent no-op. `served_version` is set LAST:
+        generate() threads self._lora into llm.generate(
+        lora_request=...), and produce_one() stamps experiences from
+        served_version — the two must flip together or a rollout can
+        be sampled at v1 while stamped v2.
         """
-        raise NotImplementedError("P7.3 (a): versioned LoRARequest")
+        from vllm.lora.request import LoRARequest
+
+        self._lora = LoRARequest(f"policy_v{version}", version, adapter_path)
+        self.served_version = version
+
+    def generate(self, questions: list[str]) -> RolloutResult:
 
     def generate(self, questions: list[str]) -> RolloutResult:
         from vllm import SamplingParams

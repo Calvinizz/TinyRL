@@ -372,7 +372,14 @@ Goal: the trainer shouldn't know how generation happens.
 - [x] Hugging Face `generate()` backend behind it; trainer stays backend-agnostic *(P7.1: `tinyr/rollout/hf_backend.py`, GPU-smoke bit-identical through delegation)*
 - [x] Study: prefill vs decode, KV cache, continuous batching, PagedAttention — why RL systems use dedicated rollout engines *(docs/inference_study.md; `benchmarks/rollout.md`: 35–45x asymmetry, plus the 390-server receipt — 3090 HF decode SLOWER than 1080 Ti, decode is host-bound)*
 - [x] vLLM backend *(P7.2, 390 server: `tinyr/rollout/vllm_backend.py` — offline template + TokensPrompt, n=G, left/right-pad reconstruction, EOS-in-token_ids verified against HF; **13.4x decode** over HF on the same 3090; tests self-skip without vllm, 89/89 green on server)*
-- [ ] Weight sync: LoRA hot-swap with versioned adapters, stamped into Phase 6's `policy_version` *(TODO P7.3: (a) `sync_policy` in `tinyr/rollout/vllm_backend.py` — versioned LoRARequest, engine kwargs already scaffolded; (c) `sync_weights` in `scripts/train_async.py` — save versioned adapter + call sync; stamp discipline done: `produce_one` now stamps `backend.served_version`; spec: zero-adapter identity test `tests/test_backend.py::TestVLLMWeightSync`)*
+- [x] Weight sync: LoRA hot-swap with versioned adapters, stamped into Phase 6's `policy_version` *(P7.3: `sync_policy` in `tinyr/rollout/vllm_backend.py` — `LoRARequest(f"policy_v{v}", v, path)`, the int id IS the engine's adapter-cache key; `sync_weights` in `scripts/train_async.py` saves to `lora_cache/v{N}`; producer stamps `backend.served_version` so engine lag is honest lag. Acceptance: zero-adapter identity (fresh `lora_B==0` is token-identical greedy) + big-perturbation probes, `tests/test_backend.py::TestVLLMWeightSync`. First full-chain run — async + vLLM + live weights, 5 steps on one 3090: lag mean 1.80 max 3, 0 drops, KL 0→0.012 = weights visibly flowing)*
+
+> Phase 7 verified end-to-end on the 390 server (2026-10-11): same-silicon
+> decode 92 → 1235 tok/s (13.4x), contract byte-parity with the HF
+> backend, and weights flowing every optimizer step. Remaining loose end
+> tracked in docs/inference_study.md §6: the Phase-6 rematch on two GPUs
+> (rollout GPU 0 / training GPU 1) — the single-GPU "async is a wash"
+> verdict gets its dedicated-hardware appeal there.
 
 > 2026-10-11 un-deferred: vLLM requires compute capability >= 7.0, which
 > the GTX 1080 Ti (sm_61) lacks — but Phase 7/8 now run on a 390 server

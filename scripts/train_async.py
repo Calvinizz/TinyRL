@@ -64,27 +64,20 @@ from tinyr.trainer import GRPOTrainer, PolicyVersion, policy_lag
 
 
 def sync_weights(backend, policy, version: int) -> None:
-    """TODO P7.3 (c): ship the trainer's current LoRA to the engine.
+    """Ship the trainer's current LoRA to the engine (P7.3 (c)).
 
-      cache = Path(__file__).resolve().parents[1] / "lora_cache"
-      d = cache / f"v{version}"
-      policy.save_pretrained(d)      # peft: adapter_config.json +
-                                     # adapter_model.safetensors (~9 MiB)
-      backend.sync_policy(version, str(d))
-
-    Pits:
-      * the DIRECTORY must be per-version (lora_cache/v{version}) —
-        overwriting one fixed path races the engine's adapter-cache
-        key (which is the LoRARequest NAME, also versioned).
-      * call it AFTER version.bump() with the new number, so name,
-        path and stamp agree. Experiences produced before the sync
-        lands are stamped from backend.served_version (the old one) —
-        honest lag, exactly what the staleness gate is for.
-      * lora_cache/ is gitignored; it grows ~9 MiB per step, prune old
-        versions when convenient (keep the newest: it is the one
-        reloadable for eval).
+    Per-version directory (lora_cache/v{N}, gitignored): one fixed
+    path would race the engine's adapter cache. ~9 MiB per step —
+    prune old versions when convenient; the newest doubles as an
+    eval checkpoint. Called AFTER version.bump() so name, path and
+    stamp agree; experiences produced before the sync lands are
+    stamped from backend.served_version (the old one) — honest lag,
+    exactly what the staleness gate is for.
     """
-    raise NotImplementedError("P7.3 (c): save versioned adapter + sync")
+    cache = Path(__file__).resolve().parents[1] / "lora_cache"
+    d = cache / f"v{version}"
+    policy.save_pretrained(d)      # adapter_config.json + .safetensors
+    backend.sync_policy(version, str(d))
 
 
 def train(cfg: TrainingConfig, prompts: list, mode: str) -> dict:
