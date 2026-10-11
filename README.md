@@ -368,19 +368,18 @@ verl/OpenRLHF run dedicated rollout engines.
 
 Goal: the trainer shouldn't know how generation happens.
 
-- [ ] `RolloutBackend` interface (`generate(prompts, **kwargs)`)
-- [ ] Hugging Face `generate()` backend behind it; trainer stays backend-agnostic
-- [ ] Study: prefill vs decode, KV cache, continuous batching, PagedAttention — why RL systems use dedicated rollout engines
+- [ ] `RolloutBackend` interface (`generate(questions) -> RolloutResult`) *(framework: `tinyr/rollout/backend.py`; `RolloutWorker` is now a thin delegator)*
+- [ ] Hugging Face `generate()` backend behind it; trainer stays backend-agnostic *(TODO P7.1: port worker logic into `tinyr/rollout/hf_backend.py`; contract pinned by stub tests)*
+- [ ] Study: prefill vs decode, KV cache, continuous batching, PagedAttention — why RL systems use dedicated rollout engines *(docs/inference_study.md; `scripts/benchmark_rollout.py` → `benchmarks/rollout.md`)*
+- [ ] vLLM backend *(TODO P7.2, 390 server only: `tinyr/rollout/vllm_backend.py` — tests self-skip without vllm)*
+- [ ] Weight sync: LoRA hot-swap with versioned adapters, stamped into Phase 6's `policy_version` *(TODO P7.3, server; strategies compared in docs/inference_study.md §7)*
 
-```python
-class RolloutBackend:
-    def generate(self, prompts, **kwargs):
-        raise NotImplementedError
-```
-
-> Deferred: real vLLM integration — vLLM requires compute capability
-> >= 7.0 (Volta), so the GTX 1080 Ti (Pascal, sm_61) cannot run it;
-> document the limitation instead.
+> 2026-10-11 un-deferred: vLLM requires compute capability >= 7.0, which
+> the GTX 1080 Ti (sm_61) lacks — but Phase 7/8 now run on a 390 server
+> (3 × RTX 3090, sm_86, driver 555 / CUDA 12.5), so real vLLM
+> integration and the Phase-6 rematch (rollout on GPU 0, training on
+> GPU 1) are back in scope. The 1080 Ti stays as the constrained-hardware
+> baseline for every earlier benchmark.
 
 ---
 
