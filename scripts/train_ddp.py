@@ -227,29 +227,54 @@ def run_engine() -> None:
         v = backend.served_version if backend.served_version is not None else 0
         roll = worker.generate([r["question"] for r in questions])
         rewards = reward_mgr.compute(roll.responses, truths)
-        exp_q.put(
-            Experience(
-                prompt_ids=roll.prompt_ids,
-                response_ids=roll.response_ids,
-                attention_mask=roll.attention_mask,
-                response_mask=Experience.build_response_mask(
-                    roll.attention_mask, roll.prompt_width
-                ),
-                rewards=rewards,
-                policy_version=v,
-            )
-        )  # blocks when the queue is full: backpressure, Phase-6 style
+        exp = Experience(
+            prompt_ids=roll.prompt_ids,
+            response_ids=roll.response_ids,
+            attention_mask=roll.attention_mask,
+            response_mask=Experience.build_response_mask(
+                roll.attention_mask, roll.prompt_width
+            ),
+            rewards=rewards,
+            policy_version=v,
+        )
+        # numpy at the boundary — see exp_to_payload
+        exp_q.put(exp_to_payload(exp))  # blocks when full: Phase-6 backpressure
         print(f"[engine] step {step + 1}/{max_steps} stamped v{v}")
     print(f"[engine] produced {max_steps} experiences; final served v{backend.served_version}")
 
 
 # --------------------------------------------------------------- trainer
-def _to_device(exp, device: torch.device):
-    exp.input_ids = exp.input_ids.to(device)
-    exp.attention_mask = exp.attention_mask.to(device)
-    exp.response_mask = exp.response_mask.to(device)
-    exp.rewards = exp.rewards.to(device)
-    return exp
+def exp_to_payload(exp) -> dict:
+    """Experience -> plain numpy dict for the queue crossing.
+
+    torch installs custom pickle reducers on tensors: cross-process
+    pickling detours through shared-memory fd passing (resource_sharer),
+    whose authkey challenge only works within one process tree — an
+    unrelated manager server dies with 'digest sent was rejected'.
+    numpy arrays pickle as plain bytes: no magic, no authkey. Tensors
+    are rebuilt on the trainer's own device afterwards.
+    """
+    return {
+        "prompt_ids": exp.prompt_ids.numpy(),
+        "response_ids": exp.response_ids.numpy(),
+        "attention_mask": exp.attention_mask.numpy(),
+        "response_mask": exp.response_mask.numpy(),
+        "rewards": exp.rewards.numpy(),
+        "policy_version": exp.policy_version,
+    }
+
+
+def payload_to_experience(p: dict, device: torch.device):
+    from tinyr.experience import Experience
+
+    return Experience(
+        prompt_ids=torch.from_numpy(p["prompt_ids"]).to(device),
+        response_ids=torch.from_numpy(p["response_ids"]).to(device),
+        attention_mask=torch.from_numpy(p["attention_mask"]).to(device),
+        response_mask=torch.from_numpy(p["response_mask"]).to(device),
+        rewards=torch.from_numpy(p["rewards"]).to(device),
+        policy_version=p["policy_version"],
+    )
 
 
 def sync_weights(cmd_q, policy, version: int) -> None:
@@ -300,7 +325,8 @@ def run_trainer() -> None:
         if rank == 0:
             payload[0] = exp_q.get()  # blocks: backpressure reaches the engine
         dist.broadcast_object_list(payload, src=0)
-        exp = _to_device(payload[0], device)
+        # plain bytes over the broadcast; tensors are born on THIS rank's GPU
+        exp = payload_to_experience(payload[0], device)
 
         # ---- staleness gate: identical verdicts on every rank ---------
         lag = policy_lag(version.current, exp.policy_version)
