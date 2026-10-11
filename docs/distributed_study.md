@@ -190,3 +190,33 @@ topologies, decision deferred to scaffold time:
 
 Either way the Phase-6 stamps and staleness gate carry over unchanged
 — they were built process-agnostic.
+
+## P8.2 receipts (2026-10-12, benchmarks/ddp.md)
+
+The sidecar topology won (option B): vLLM's distributed init inside a
+torchrun world is a version-dependent minefield with no payoff at
+0.5B scale. One world, 2 ranks, 10 steps, zero drops, lag pinned at
+2.4/3 — the invariant chain survived contact with a live engine:
+
+- **Parity, not speed**: steady 0.70 s/step vs 0.71 single-GPU
+  (rematch-comparable clock). Per-rank compute halved, LoRA AllReduce
+  invisible (8.7 MB), but ~0.15 s/step of new serial work (object
+  broadcast, scalar token allreduce, barrier, rank-0 save) ate the
+  gain. DDP here buys the ability to scale when the trainer becomes
+  the wall — which rematch Finding 4 says is next.
+- **Exactness held**: prompt-level shards (`group_rows_for_rank` —
+  advantages are intra-group, groups never split) + `ddp_loss_scale`
+  (world·tok_r/total via one scalar allreduce) — the DDP average of
+  per-rank token-means IS the global token mean, proven in
+  tests/test_ddp.py before it ever ran on GPUs.
+- **The IPC law**: torch tensors do not cross process trees. torch's
+  custom pickle reducers detour cross-process tensors through
+  shared-memory fd passing (rebuild_storage_fd), whose authkey
+  challenge uses each process's own key — an unrelated manager server
+  and engine can never shake hands. numpy at the boundary; tensors
+  are born on each rank's own device. Same law as P7: the boundary
+  carries bytes (safetensors files there, numpy dicts here).
+- **Zero gradients can be correct**: unanimous groups (std=0) give
+  advantage ≡ 0, and a fresh LoRA makes policy ≡ ref so kl ≡ 0 —
+  loss exactly zero at step 1 on both ranks. Distinguish "degenerate
+  batch" from "broken mask" before touching code (ddp.md Finding 3).
