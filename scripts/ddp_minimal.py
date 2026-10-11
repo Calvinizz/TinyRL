@@ -34,6 +34,7 @@ import sys
 from pathlib import Path
 
 import torch
+import torch.distributed as dist
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -45,7 +46,8 @@ N_TOKENS = 32
 
 
 # --------------------------------------------------------------------------
-# TODO P8.1 (a) — join the process group
+# P8.1 (a) — join the process group (written on request, 2026-10-11;
+# (b) and (c) below remain the reader's)
 # --------------------------------------------------------------------------
 def setup_distributed() -> tuple[int, int, int, torch.device]:
     """Read torchrun's environment and join the NCCL world.
@@ -69,7 +71,21 @@ def setup_distributed() -> tuple[int, int, int, torch.device]:
       - cuda.set_device AFTER init_process_group -> rank/device mismatch
       - gloo instead of nccl also works (CPU debugging, no driver)
     """
-    raise NotImplementedError("P8.1 (a)")
+    rank = int(os.environ["RANK"])             # global: unique across ALL nodes
+    local_rank = int(os.environ["LOCAL_RANK"]) # per-node: which GPU on THIS box
+    world_size = int(os.environ["WORLD_SIZE"])
+
+    device = torch.device(f"cuda:{local_rank}")
+    torch.cuda.set_device(device)              # BEFORE init: NCCL binds to the
+                                               # current device when it builds
+                                               # its communicators
+    dist.init_process_group("nccl")            # init_method="env://" is the
+                                               # default: MASTER_ADDR/PORT +
+                                               # RANK/WORLD_SIZE, all from
+                                               # torchrun. Blocks until every
+                                               # rank has rendezvoused — even
+                                               # init is a collective.
+    return rank, local_rank, world_size, device
 
 
 # --------------------------------------------------------------------------
@@ -197,8 +213,6 @@ def main() -> None:
           + "  ".join(f"{k}={v}" for k, v in results.items()))
     if not all(results.values()):
         print(f"[rank {rank}] VERDICT FAIL — a claim above is False")
-
-    import torch.distributed as dist
 
     dist.barrier()
     dist.destroy_process_group()
