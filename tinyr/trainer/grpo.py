@@ -3,7 +3,7 @@
 import torch
 
 from tinyr.config import TrainingConfig
-from tinyr.experience.experience import Experience, iter_micro_batches
+from tinyr.experience.experience import Experience, iter_micro_batches, iter_micro_batches_bucketed
 
 
 class GRPOTrainer:
@@ -199,26 +199,46 @@ class GRPOTrainer:
         """
         metrics: dict[str, float] = {}
         for inner_epoch in range(self.cfg.n_inner_epochs):
-            micro_batches = list(iter_micro_batches(
-                exp.n_sequences, self.cfg.micro_batch_size
-            ))
+            if self.cfg.dynamic_batching:
+                micro_batches = list(iter_micro_batches_bucketed(
+                                exp.response_mask, self.cfg.micro_batch_size))
+            else:
+                micro_batches = list(iter_micro_batches(
+                    exp.n_sequences, self.cfg.micro_batch_size
+                ))
             total_tok = exp.response_mask[:, 1:].sum()
             self.optimizer.zero_grad(set_to_none=True)
             for rows in micro_batches:
-                sub = exp.rows(rows)
-                new_logprobs = self.compute_logprobs(
+                if not self.cfg.dynamic_batching:
+                    sub = exp.rows(rows)
+                    new_logprobs = self.compute_logprobs(
+                        self.policy, sub.input_ids, sub.attention_mask,
+                        sub.response_mask,
+                    )
+                    loss, metrics = self.compute_grpo_loss(
+                        new_logprobs, sub.old_logprobs, sub.ref_logprobs,
+                        sub.advantages, sub.response_mask, self.cfg,
+                    )
+                    # baseline path: equal-size chunks -> 1/n_micro is exact.
+                    # P5.3: under cfg.dynamic_batching replace with the
+                    # token-weighted scale (see docstring above).
+                
+                    loss = loss / len(micro_batches)
+                    loss.backward()
+                else:
+                    sub = exp.rows(rows,trim=True)
+                    scale = sub.response_mask[:, 1:].sum() / total_tok
+                    new_logprobs = self.compute_logprobs(
                     self.policy, sub.input_ids, sub.attention_mask,
-                    sub.response_mask,
-                )
-                loss, metrics = self.compute_grpo_loss(
-                    new_logprobs, sub.old_logprobs, sub.ref_logprobs,
-                    sub.advantages, sub.response_mask, self.cfg,
-                )
-                # baseline path: equal-size chunks -> 1/n_micro is exact.
-                # P5.3: under cfg.dynamic_batching replace with the
-                # token-weighted scale (see docstring above).
-                loss = loss / len(micro_batches)
-                loss.backward()
+                        sub.response_mask,
+                    )
+                    loss, metrics = self.compute_grpo_loss(
+                        new_logprobs, sub.old_logprobs, sub.ref_logprobs,
+                        sub.advantages, sub.response_mask, self.cfg,
+                    )
+                    loss = loss * scale
+                    loss.backward()
+                    
 
             if self._steps == 0 and inner_epoch == 0:
                 self.verify_gradients()

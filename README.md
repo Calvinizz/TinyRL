@@ -324,10 +324,18 @@ rollout engines (Phase 7).
 
 Goal: stop paying compute for padding tokens.
 
-- [ ] Measure padding ratio and the response-length distribution *(TODO P5.1: `tinyr/experience/metrics.py`; pad% now in the step log)*
-- [ ] Bucket samples by response length *(TODO P5.2: `iter_micro_batches_bucketed` + `Experience.rows(trim=)`)*
-- [ ] Dynamic micro-batching driven by the buckets *(TODO P5.3: `cfg.dynamic_batching` branch in `train_step` — token-weighted accumulation so grads stay == full-batch even with unequal chunks)*
-- [ ] Compare fixed vs dynamic batching throughput *(run `scripts/benchmark_padding.py`, fill Findings)*
+- [x] Measure padding ratio and the response-length distribution *(P5.1: `tinyr/experience/metrics.py`; pad% in the step log — 54–72% of the response block on the toy task)*
+- [x] Bucket samples by response length *(P5.2: `iter_micro_batches_bucketed` + `Experience.rows(trim=)` cuts each micro-batch to its own longest real response)*
+- [x] Dynamic micro-batching driven by the buckets *(P5.3: `cfg.dynamic_batching` branch in `train_step` — token-weighted accumulation; grads exactly == full-batch on ragged batches, `tests/test_bucketing.py`)*
+- [x] Compare fixed vs dynamic batching throughput *(+32–40% train tok/s, `benchmarks/padding.md`)*
+
+Verified: 64 unit tests green (incl. weighted-accumulation == full-batch
+on a ragged batch, with the old `1/n_micro` bias documented as a
+counterexample test); GPU run with `--dynamic-batching` produces sane
+metrics and lower peaks. Headline: response-block padding was 54–72%;
+bucketing shrinks each micro-batch to its own width for +32–40%
+training throughput. Peak unchanged — it is set by the full-batch
+no-grad logprob passes (Phase 3 Finding 4 again).
 
 ---
 

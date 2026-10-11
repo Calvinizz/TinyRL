@@ -13,8 +13,7 @@ def response_lengths(response_mask: torch.Tensor) -> torch.Tensor:
 
     One line. This is the length signal bucketing sorts on.
     """
-    raise NotImplementedError
-
+    return response_mask.sum(dim=1)
 
 def padding_ratio(response_mask: torch.Tensor, response_width: int) -> float:
     """TODO P5.1 (b): share of the response BLOCK that is padding.
@@ -30,4 +29,6 @@ def padding_ratio(response_mask: torch.Tensor, response_width: int) -> float:
     only bill the response block (T = W + R includes the prompt block).
     A ratio of 0.6 means 60% of the response compute buys nothing.
     """
-    raise NotImplementedError
+    N ,T  = response_mask.shape
+    # 这里是N条，所以我们要再sum下，然后使用item取出标量
+    return 1 - response_lengths(response_mask).sum().item() / (N * response_width)

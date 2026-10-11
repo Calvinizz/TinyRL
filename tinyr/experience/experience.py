@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 
 from tinyr.utils.assertions import assert_device, assert_dtype, assert_shape
-
+from tinyr.experience.metrics import response_lengths
 
 @dataclass
 class Experience:
@@ -16,7 +16,7 @@ class Experience:
     by GRPOTrainer.prepare() before the update (mirrors the README's
     planned experience structure).
     """
-
+    # ids 是 token 本身含有padding， mask 是掩码
     prompt_ids: torch.Tensor      # LongTensor  [N, W]
     response_ids: torch.Tensor    # LongTensor  [N, R]
     attention_mask: torch.Tensor  # LongTensor  [N, T]
@@ -96,8 +96,21 @@ class Experience:
         # slice every [N, T] (and [N, T-1]) field to the new width and
         # rebuild the Experience. Reuse the untrimmed branch's slicing
         # pattern with the column limits applied.
-        raise NotImplementedError
-
+        else:
+             new_r = self.response_mask[idx].sum(dim=-1).max().item()
+             W = self.prompt_ids.shape[1]
+             new_t = W + new_r
+             return Experience(
+                 prompt_ids=self.prompt_ids[idx],
+                 response_ids=self.response_ids[idx][:,:new_r],
+                 attention_mask=self.attention_mask[idx][:,:new_t],
+                 response_mask=self.response_mask[idx][:,:new_t],
+                 rewards=self.rewards[idx],
+                 advantages=self.advantages[idx] if self.advantages is not None else None,
+                 old_logprobs=self.old_logprobs[idx][...,:new_t - 1] if self.old_logprobs is not None else None,
+                 ref_logprobs=self.ref_logprobs[idx][...,:new_t - 1] if self.ref_logprobs is not None else None,
+             )
+        
     def __post_init__(self) -> None:
         """Validate shapes / dtypes / devices at construction time.
 
@@ -176,4 +189,12 @@ def iter_micro_batches_bucketed(
     Returns a list of lists (train_step indexes it twice — once for
     iteration, once for len()).
     """
-    raise NotImplementedError
+    lengths = response_lengths(response_mask)
+    order = torch.argsort(lengths).tolist()
+    ans = []
+    if micro_batch_size is None or micro_batch_size <= 0:
+        return [order]
+    for i in range(0, len(order), micro_batch_size):
+        ans.append(order[i:i + micro_batch_size])
+
+    return ans

@@ -81,8 +81,8 @@ def make_exp(lens: list[int]) -> Experience:
         response_ids=ids(n, r),
         attention_mask=attention,
         response_mask=make_mask(lens),
-        rewards=torch.tensor([1.0, 0.0] * (n // 2)),
-        advantages=torch.tensor([1.0, -1.0] * (n // 2)),
+        rewards=torch.tensor([1.0 if i % 2 == 0 else 0.0 for i in range(n)]),
+        advantages=torch.tensor([1.0 if i % 2 == 0 else -1.0 for i in range(n)]),
         old_logprobs=torch.randn(n, T - 1, generator=g),
         ref_logprobs=torch.randn(n, T - 1, generator=g),
     )
