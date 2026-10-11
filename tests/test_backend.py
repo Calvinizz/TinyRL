@@ -7,11 +7,25 @@ P7.1 port produces the contract tensors. The vLLM tests self-skip
 without vllm+cuda and turn red on the 390 server until P7.2 lands.
 """
 
-import pytest
-import torch
+import os
 
-from tinyr.config import TrainingConfig
-from tinyr.rollout import (
+# The vLLM tests must pass from a BARE shell too, not only after
+# `source scripts/server_env.sh`. vLLM reads both at engine-construction
+# time, but pin them before any vllm import to be safe. setdefault: an
+# explicit shell value still wins.
+#   sampler -> flashinfer would JIT .cu with the system nvcc (CUDA 10.1,
+#              too old for -generate-dependencies-with-compile); the
+#              torch-native sampler path needs no compiler at all
+#   spawn   -> EngineCore's default fork() deadlocks under a threaded
+#              parent (pytest has already imported transformers)
+os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
+os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+
+import pytest  # noqa: E402
+import torch  # noqa: E402
+
+from tinyr.config import TrainingConfig  # noqa: E402
+from tinyr.rollout import (  # noqa: E402
     HFRolloutBackend,
     RolloutBackend,
     RolloutResult,
