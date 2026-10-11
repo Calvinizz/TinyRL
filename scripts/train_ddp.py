@@ -225,7 +225,10 @@ def run_engine() -> None:
     print(f"[engine] up; base weights = version 0 (fresh LoRA: lora_B == 0)")
 
     for step in range(max_steps):
+        t0 = time.perf_counter()
         _drain_sync(cmd_q, backend)  # newest weights BEFORE sampling
+        t_sync = time.perf_counter() - t0
+        t0 = time.perf_counter()
         questions = random.sample(prompts, cfg.n_prompts_per_step)
         truths = [r["answer"] for r in questions for _ in range(cfg.group_size)]
         # stamp what is actually being SERVED: None before any sync means
@@ -245,7 +248,9 @@ def run_engine() -> None:
         )
         # numpy at the boundary — see exp_to_payload
         exp_q.put(exp_to_payload(exp))  # blocks when full: Phase-6 backpressure
-        print(f"[engine] step {step + 1}/{max_steps} stamped v{v}")
+        t_gen = time.perf_counter() - t0
+        print(f"[engine] step {step + 1}/{max_steps} stamped v{v} "
+              f"| gen+reward {t_gen:.2f}s | sync {t_sync:.2f}s")
     print(f"[engine] produced {max_steps} experiences; final served v{backend.served_version}")
 
 
@@ -327,12 +332,14 @@ def run_trainer() -> None:
 
     for i in range(max_steps):
         # ---- the boundary: one queue reader, one broadcast ------------
+        t0 = time.perf_counter()
         payload = [None]
         if rank == 0:
             payload[0] = exp_q.get()  # blocks: backpressure reaches the engine
         dist.broadcast_object_list(payload, src=0)
         # plain bytes over the broadcast; tensors are born on THIS rank's GPU
         exp = payload_to_experience(payload[0], device)
+        t_bcast = time.perf_counter() - t0
 
         # ---- staleness gate: identical verdicts on every rank ---------
         lag = policy_lag(version.current, exp.policy_version)
@@ -344,6 +351,7 @@ def run_trainer() -> None:
             continue
 
         # ---- exact global token mean under DDP averaging --------------
+        t0 = time.perf_counter()
         tok = float(exp.response_mask[:, 1:].sum())
         t = torch.tensor([tok], device=device)
         dist.all_reduce(t)
@@ -354,17 +362,32 @@ def run_trainer() -> None:
         shard = exp.rows(group_rows_for_rank(n_prompts, cfg.group_size, rank, world))
 
         trainer.prepare(shard)   # advantages (intra-group) + old/ref logprobs
+        t_prep = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         metrics = trainer.train_step(shard)  # AllReduce fires in backward
+        t_train = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         version.bump()
         stats["steps"] += 1
         stats["resp_tokens"] += exp.n_response_tokens
         if rank == 0:
             sync_weights(cmd_q, ddp.module, version.current)
+        dist.barrier()  # timing fence: no rank sneaks into the next get
+        t_sync = time.perf_counter() - t0
+        stats.setdefault("phases", []).append(
+            {"bcast": round(t_bcast, 3), "prep": round(t_prep, 3),
+             "train": round(t_train, 3), "sync": round(t_sync, 3)}
+        )
+        if rank == 0:
             print(
                 f"step {stats['steps']:3d} | lag {lag} "
                 f"| reward {exp.rewards.mean().item():.3f} "
                 f"| kl {metrics.get('kl', float('nan')):.4f} "
-                f"| clip {metrics.get('clip_frac', float('nan')):.3f}"
+                f"| clip {metrics.get('clip_frac', float('nan')):.3f} "
+                f"| bcast {t_bcast:.2f} prep {t_prep:.2f} "
+                f"train {t_train:.2f} sync {t_sync:.2f}"
             )
 
     wall = time.perf_counter() - wall_start
@@ -373,6 +396,8 @@ def run_trainer() -> None:
     peaks = [None] * world
     dist.all_gather_object(peaks, round(peak, 2))
     if rank == 0:
+        ph = stats.get("phases") or []
+        phase_means = {k: round(sum(p[k] for p in ph) / len(ph), 3) for k in ph[0]} if ph else {}
         out = {
             "steps": stats["steps"],
             "drops": stats["drops"],
@@ -383,6 +408,7 @@ def run_trainer() -> None:
             "resp_tok_s": round(stats["resp_tokens"] / wall, 1),
             "world": world,
             "peaks_gib": peaks,
+            "phase_means_s": phase_means,
         }
         Path(result_path).parent.mkdir(parents=True, exist_ok=True)
         Path(result_path).write_text(json.dumps(out))
