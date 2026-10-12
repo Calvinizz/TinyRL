@@ -147,7 +147,8 @@ Supervised training parallelizes ONE axis (the gradient). RL has three:
    HONESTLY (Phase 7 §7: stamp `served_version`, let the staleness
    gate judge).
 
-This is verl's actor/rolloff split; mapping TinyRL onto it is Phase 9.
+This is verl's actor/rolloff split; mapping TinyRL onto it is a
+natural follow-up for anyone continuing from here.
 
 ## 7. P8.1 receipts → P8.2 plan
 

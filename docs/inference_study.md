@@ -142,14 +142,14 @@ until told. Three strategies, cheapest first:
    into the runner's model. Exact full weights (not adapter
    arithmetic), one code path for any architecture — but a full-model
    transfer (~1 GiB fp16) per sync unless engine and trainer share a
-   device group. This is what Phase 9's "find weight synchronization
-   in verl" maps to.
+   device group. This is verl's weight-sync mechanism — reading it in
+   their source is the natural follow-up to this study.
 3. **Merge-and-reload**: merge LoRA into the base, rebuild the engine.
    Correct but ~seconds of downtime per step — the strawman that
    shows why 1 and 2 exist.
 
 TinyRL order: strategy 1 for P7.3 (smallest delta to the Phase-6
-stamping machinery), study 2's code path during Phase 9.
+stamping machinery), strategy 2 left as the verl-reading exercise.
 
 Acceptance probes for strategy 1 (both in
 `tests/test_backend.py::TestVLLMWeightSync`, one engine boot):
